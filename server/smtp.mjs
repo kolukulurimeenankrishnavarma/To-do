@@ -4,12 +4,15 @@ import { connect as tlsConnect } from "node:tls";
 
 const SMTP_TIMEOUT = 12_000;
 
-function readConfig() {
+export function readSmtpConfig() {
   const url = process.env.TASKLY_SMTP_URL;
   if (url) {
     try {
       const parsed = new URL(url);
-      if (parsed.protocol !== "smtp:" && parsed.protocol !== "smtps:") {
+      if (
+        (parsed.protocol !== "smtp:" && parsed.protocol !== "smtps:") ||
+        !parsed.hostname
+      ) {
         return null;
       }
       const secure = parsed.protocol === "smtps:";
@@ -19,6 +22,7 @@ function readConfig() {
         host: parsed.hostname,
         port: Number(parsed.port) || (secure ? 465 : 587),
         secure,
+        starttls: process.env.TASKLY_SMTP_STARTTLS !== "0",
         user,
         pass,
         from:
@@ -42,14 +46,25 @@ function readConfig() {
     host,
     port: Number(process.env.TASKLY_SMTP_PORT) || (secure ? 465 : 587),
     secure,
+    starttls: process.env.TASKLY_SMTP_STARTTLS !== "0",
     user,
     pass,
     from: process.env.TASKLY_SMTP_FROM || user || `taskly@${host}`,
   };
 }
 
+// Envelope addresses must be bare email addresses even when the From header
+// uses a display name such as `Taskly <no-reply@example.com>`.
+function envelopeAddress(value, fallback = "") {
+  const cleaned = String(value ?? "")
+    .replace(/[\r\n]/g, "")
+    .trim();
+  const match = cleaned.match(/<([^<>]+)>/);
+  return (match ? match[1] : cleaned).trim() || fallback;
+}
+
 export function smtpConfigured() {
-  return readConfig() !== null;
+  return readSmtpConfig() !== null;
 }
 
 function attachReader(socket) {
@@ -230,7 +245,7 @@ async function send(config, to, subject, body) {
     let ehlo = await client.command(`EHLO ${hostname() || "localhost"}`, [250]);
     let capabilities = ehlo.text.toLowerCase();
 
-    if (!config.secure && capabilities.includes("starttls")) {
+    if (config.starttls && !config.secure && capabilities.includes("starttls")) {
       await client.command("STARTTLS", [220]);
       reader.detach();
       socket = await upgradeToTls(socket, config.host);
@@ -241,8 +256,13 @@ async function send(config, to, subject, body) {
     }
 
     await authenticate(client, config, capabilities);
-    await client.command(`MAIL FROM:<${config.from}>`, [250]);
-    await client.command(`RCPT TO:<${to}>`, [250, 251]);
+    const fromAddress = envelopeAddress(config.from, config.user);
+    const toAddress = envelopeAddress(to);
+    if (!fromAddress || !toAddress) {
+      throw new Error("SMTP needs valid sender and recipient addresses.");
+    }
+    await client.command(`MAIL FROM:<${fromAddress}>`, [250]);
+    await client.command(`RCPT TO:<${toAddress}>`, [250, 251]);
     await client.command("DATA", [354]);
 
     const message = dotStuff(buildMessage(config, to, subject, body));
@@ -264,7 +284,7 @@ async function send(config, to, subject, body) {
 }
 
 export async function sendInviteEmail({ to, teamName, inviterName, link }) {
-  const config = readConfig();
+  const config = readSmtpConfig();
   if (!config) {
     return { sent: false, error: "SMTP is not configured." };
   }
@@ -290,8 +310,35 @@ export async function sendInviteEmail({ to, teamName, inviterName, link }) {
   }
 }
 
+export async function sendTestEmail({ to }) {
+  const config = readSmtpConfig();
+  if (!config) {
+    return { sent: false, error: "SMTP is not configured." };
+  }
+
+  const subject = "Taskly SMTP test";
+  const body = [
+    "This is a test message from your Taskly server.",
+    "",
+    `Sent at: ${new Date().toISOString()}`,
+    `Server: ${config.host}:${config.port}`,
+    "",
+    "If you received this, invitation and password-reset emails can be delivered.",
+  ].join("\r\n");
+
+  try {
+    await send(config, to, subject, body);
+    return { sent: true, error: null };
+  } catch (error) {
+    return {
+      sent: false,
+      error: error instanceof Error ? error.message : "SMTP delivery failed.",
+    };
+  }
+}
+
 export async function sendPasswordResetEmail({ to, name, link }) {
-  const config = readConfig();
+  const config = readSmtpConfig();
   if (!config) {
     return { sent: false, error: "SMTP is not configured." };
   }

@@ -74,13 +74,12 @@ body {
   line-height: 1.5;
   color: var(--text);
   background: var(--bg);
-  overflow-x: hidden;
 }
 
 body::before {
   content: "";
   position: fixed;
-  inset: -120px -10% auto;
+  inset: -120px 0 auto;
   height: 540px;
   z-index: -1;
   pointer-events: none;
@@ -249,7 +248,7 @@ svg {
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 560px) {
   .views {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -260,6 +259,7 @@ svg {
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
+  min-width: 0;
   margin-bottom: 26px;
 }
 
@@ -330,6 +330,7 @@ svg {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
   margin-bottom: 6px;
 }
 
@@ -337,10 +338,12 @@ svg {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   margin: 0;
   font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.01em;
+  overflow-wrap: anywhere;
 }
 
 .pill {
@@ -521,13 +524,21 @@ svg {
   top: calc(100% + 8px);
   left: 0;
   z-index: 40;
-  width: min(420px, calc(100vw - 72px));
+  width: min(420px, calc(100vw - 40px));
+  max-height: min(460px, calc(100dvh - 96px));
   padding: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: var(--popover-shadow);
   animation: deadline-panel-in 0.18s ease both;
+}
+
+.deadline-panel--up {
+  top: auto;
+  bottom: calc(100% + 8px);
 }
 
 @keyframes deadline-panel-in {
@@ -940,9 +951,9 @@ svg {
 }
 
 .deadline {
-  display: inline-flex;
-  align-items: center;
+  display: inline-block;
   max-width: 100%;
+  min-width: 0;
   padding: 1px 8px;
   font-size: 11.5px;
   font-weight: 600;
@@ -951,7 +962,7 @@ svg {
   background: var(--surface-muted);
   border: 1px solid var(--border);
   border-radius: 999px;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .deadline--due {
@@ -1361,6 +1372,11 @@ svg {
   .icon-btn {
     opacity: 0.8;
   }
+
+  .check:not(.check--done) svg {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
 }
 
 /* ---------- Empty states ---------- */
@@ -1404,10 +1420,11 @@ svg {
   font-size: 12.5px;
   text-align: center;
   color: var(--text-muted);
+  overflow-wrap: anywhere;
 }
 
 /* ---------- Responsive ---------- */
-@media (max-width: 560px) {
+@media (max-width: 700px) {
   .app {
     padding-top: 32px;
   }
@@ -1511,6 +1528,7 @@ svg {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
+  overflow-wrap: anywhere;
 }
 
 .stat--overdue .stat__value {
@@ -1536,6 +1554,20 @@ svg {
 .toolbar__hint {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.toolbar__hint--narrow {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .toolbar__hint--wide {
+    display: none;
+  }
+
+  .toolbar__hint--narrow {
+    display: inline;
+  }
 }
 
 .filters {
@@ -1700,7 +1732,7 @@ svg {
   padding-top: 22px;
 }
 
-@media (max-width: 560px) {
+@media (max-width: 700px) {
   .stats {
     gap: 8px;
   }
@@ -1731,10 +1763,12 @@ svg {
 /* ---------- Account header ---------- */
 .app__meta {
   display: flex;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   flex-direction: column;
   align-items: flex-end;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .app__meta .app__date {
@@ -1743,14 +1777,19 @@ svg {
 
 .app__account {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .user-chip {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  min-width: 0;
   max-width: 220px;
   padding: 4px 10px 4px 5px;
   font-size: 12px;
@@ -1776,6 +1815,7 @@ svg {
 }
 
 .user-chip__name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2055,7 +2095,7 @@ svg {
   opacity: 0.8;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 560px) {
   .auth {
     padding: 16px;
   }
@@ -2256,13 +2296,21 @@ svg {
   left: 0;
   z-index: 60;
   width: 292px;
-  max-width: calc(100vw - 52px);
+  max-width: calc(100vw - 40px);
+  max-height: calc(100dvh - 96px);
   padding: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 13px;
   box-shadow: var(--popover-shadow);
   animation: deadline-panel-in 0.16s ease both;
+}
+
+.country-picker__popover--up {
+  top: auto;
+  bottom: calc(100% + 7px);
 }
 
 .country-picker__search {
@@ -2285,7 +2333,7 @@ svg {
 }
 
 .country-picker__list {
-  max-height: 238px;
+  max-height: min(238px, calc(100dvh - 210px));
   margin: 8px 0 0;
   padding: 0;
   overflow-y: auto;
@@ -2632,16 +2680,20 @@ svg {
   margin: 8px 0 0;
   font-size: 12px;
   font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .team-invite-message p {
   margin: 0 0 4px;
+  overflow-wrap: anywhere;
 }
 
 .team-invite-message__link a {
   color: var(--accent-strong);
   font-weight: 600;
   word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .team-invite-message--success {
@@ -2699,9 +2751,12 @@ svg {
 
 /* Team overview */
 .team-overview__hint {
+  min-width: 0;
   font-size: 11.5px;
   font-weight: 600;
+  text-align: right;
   color: var(--text-muted);
+  overflow-wrap: anywhere;
 }
 
 .team-summary {
@@ -2735,6 +2790,7 @@ svg {
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--text-muted);
+  overflow-wrap: anywhere;
 }
 
 .team-summary__item--danger .team-summary__value {
@@ -3023,7 +3079,7 @@ svg {
   color: var(--text-muted);
 }
 
-@media (max-width: 560px) {
+@media (max-width: 700px) {
   .task-form--team {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -3056,16 +3112,117 @@ svg {
 }
 
 @media (max-width: 420px) {
+  .app__meta {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .app__date {
+    white-space: normal;
+    text-align: right;
+  }
+
+  .stats,
   .team-summary {
     gap: 6px;
   }
 
+  .stat,
   .team-summary__item {
-    padding: 9px 10px;
+    padding: 8px 9px;
   }
 
+  .stat__label,
+  .team-summary__label {
+    font-size: 10px;
+    letter-spacing: 0;
+  }
+
+  .stat__value,
   .team-summary__value {
     font-size: 17px;
+  }
+}
+
+/* ---------- Fluid text and touch ergonomics ---------- */
+.app__heading,
+.app__title-row,
+.team-switcher,
+.team-switcher__list,
+.team-switcher__list > *,
+.team-member__stats {
+  min-width: 0;
+}
+
+.team-switcher__btn {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.team-gate__title,
+.team-gate__text,
+.team-gate__text strong,
+.team-gate__signed-in,
+.invite-banner__text,
+.card__title {
+  overflow-wrap: anywhere;
+}
+
+.team-member__stat {
+  white-space: normal;
+}
+
+@media (pointer: coarse) {
+  .check,
+  .icon-btn,
+  .theme-toggle,
+  .deadline-clear,
+  .chip,
+  .btn--ghost,
+  .workspace-toggle__btn,
+  .auth__mode,
+  .filter,
+  .view,
+  .team-invite__cancel,
+  .team-invite__copy,
+  .team-member__remove,
+  .team-switcher__btn,
+  .assignee__select,
+  .sort__select,
+  .btn--log,
+  .btn--save,
+  .btn--danger,
+  .deadline-trigger,
+  .progress-note,
+  .log summary,
+  .country-option {
+    min-height: 44px;
+  }
+
+  .check,
+  .icon-btn,
+  .theme-toggle,
+  .deadline-clear {
+    min-width: 44px;
+  }
+
+  .link-btn {
+    padding-block: 12px;
+  }
+
+  .progress__slider {
+    height: 24px;
+    margin-block: 4px;
+  }
+
+  .progress__slider::-webkit-slider-thumb {
+    width: 24px;
+    height: 24px;
+  }
+
+  .progress__slider::-moz-range-thumb {
+    width: 22px;
+    height: 22px;
   }
 }
 

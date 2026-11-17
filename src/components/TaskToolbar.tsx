@@ -16,7 +16,12 @@ const SORTS: { id: TaskSort; label: string }[] = [
 export function TaskToolbar({ sort, onSortChange }: TaskToolbarProps) {
   return (
     <div className="toolbar">
-      <span className="toolbar__hint">Choose a view on the left.</span>
+      <span className="toolbar__hint toolbar__hint--wide">
+        Choose a view on the left.
+      </span>
+      <span className="toolbar__hint toolbar__hint--narrow">
+        Choose a view above.
+      </span>
       <label className="sort">
         <span className="sort__label">Sort</span>
         <select

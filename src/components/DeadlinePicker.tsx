@@ -9,6 +9,7 @@ import {
   friendlyDeadline,
   fullDeadlineLabel,
 } from "../lib/date";
+import { usePopoverPlacement } from "../lib/popoverPlacement";
 import { CalendarIcon, ChevronIcon, XIcon } from "./Icons";
 
 type DeadlinePickerProps = {
@@ -52,6 +53,7 @@ export function DeadlinePicker({
   const timeRef = useRef<HTMLInputElement>(null);
   const flashTimer = useRef<number | undefined>(undefined);
   const [flash, setFlash] = useState(false);
+  const { side, maxHeight } = usePopoverPlacement(open, builderRef, 340);
 
   const preview = combineDateAndTime(dateValue, timeValue);
 
@@ -172,8 +174,9 @@ export function DeadlinePicker({
 
       {open ? (
         <div
-          className="deadline-panel"
+          className={`deadline-panel${side === "up" ? " deadline-panel--up" : ""}`}
           id="deadline-panel"
+          style={{ maxHeight }}
           role="group"
           aria-label="Choose a deadline"
           onKeyDown={handleKeyDown}

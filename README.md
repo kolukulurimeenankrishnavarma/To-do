@@ -166,9 +166,45 @@ The Node server serves the built `dist/` app and the API from the same origin at
 | `TASKLY_HOST` | `127.0.0.1` | Bind address (`0.0.0.0` for a LAN) |
 | `TASKLY_DB` | `data/db.json` | JSON database file |
 | `TASKLY_PUBLIC_URL` | request origin | Base URL used in invite and reset links |
-| `TASKLY_TEST_MODE` | off | Enables `POST /api/test/reset` for E2E |
+| `TASKLY_TEST_MODE` | off | Enables `POST /api/test/reset` for E2E; also ignores `.env` |
+| `TASKLY_SKIP_ENV_FILE` | off | Set to `1` to ignore `.env` without test mode |
 | `TASKLY_SMTP_URL` | unset | SMTP URL, e.g. `smtp://user:pass@smtp.example.com:587` |
-| `TASKLY_SMTP_HOST`/`PORT`/`USER`/`PASS`/`SECURE`/`FROM` | unset | Individual SMTP settings |
+| `TASKLY_SMTP_HOST` | unset | SMTP host when not using `TASKLY_SMTP_URL` |
+| `TASKLY_SMTP_PORT` | `587` (`465` with `SECURE=1`) | SMTP port |
+| `TASKLY_SMTP_USER` / `TASKLY_SMTP_PASS` | empty | SMTP credentials; many relays need an app password or API key |
+| `TASKLY_SMTP_SECURE` | `0` | Set to `1` for implicit TLS (normally port 465) |
+| `TASKLY_SMTP_STARTTLS` | `1` | Set to `0` only for a local relay that cannot upgrade |
+| `TASKLY_SMTP_FROM` | SMTP user | Sender address; display names such as `Taskly <hi@example.com>` are supported |
+| `TASKLY_TEST_EMAIL` | unset | Default recipient for `npm run mail:test` |
+
+Environment variables can be placed in a `.env` file in the project root.
+Start the server with `npm start` or `npm run dev` and it is loaded
+automatically. Real shell/process variables take precedence, `.env` is ignored
+by Git, and E2E runs skip it so local credentials never change test behavior.
+
+### Email (SMTP) setup
+
+1. Copy the template: `cp .env.example .env`.
+2. Set `TASKLY_PUBLIC_URL` to the exact address teammates use in the browser
+   (for example `https://tasks.example.com`). Invitation and reset links use it,
+   so links still work behind a reverse proxy or on another device.
+3. Uncomment **either** `TASKLY_SMTP_URL` **or** the individual
+   `TASKLY_SMTP_*` lines. URL credentials must be percent-encoded (`@` → `%40`).
+4. Use your provider's SMTP host, port, username, and password. For Gmail and
+   Outlook, create an **app password**; for SendGrid/Resend/Brevo, use the API
+   key as the password and the provider's documented username.
+5. Test delivery, then restart the server:
+
+   ```bash
+   npm run mail:test -- --to you@example.com
+   npm start
+   ```
+
+`GET /api/meta` reports `smtpConfigured`. When SMTP is configured, invitation
+and reset URLs are not returned in API responses; the server emails them and
+responses include `emailSent` / `emailError`. When it is not configured, the UI
+keeps showing the links so local setups still work without a mail provider.
+Delivery errors are reported to the caller rather than failing silently.
 
 JSON writes are serialized in-process and written atomically (`write temp file →
 rename`). Back up `data/db.json` to keep accounts and tasks.
@@ -186,6 +222,7 @@ rename`). Back up `data/db.json` to keep accounts and tasks.
 | `npm test`           | Run Vitest unit tests once                         |
 | `npm run test:watch` | Run Vitest in watch mode                           |
 | `npm run test:e2e`   | Run the Playwright browser suite                   |
+| `npm run mail:test`  | Send a test email using the configured SMTP server  |
 | `npm run typecheck`  | Run TypeScript project checks                      |
 | `npm run lint`       | Run oxlint                                         |
 
@@ -219,7 +256,9 @@ Parity with the vanilla app:
 - Account chip, log out, and a pending-task count in the browser tab title
 - Light/dark theme toggle that starts from the system preference, remembers
   the chosen mode, and keeps text and controls readable in both themes
-- Responsive, keyboard-accessible layout
+- Responsive, keyboard-accessible layout that reflows from 320px phones through
+  tablets and 200% zoom to wide desktops, with touch-sized controls, wrapped
+  long text, and popovers that stay inside the viewport
 
 React-only enhancements:
 
@@ -476,8 +515,8 @@ GET    /api/events?token=&client=    server-sent realtime updates
 ## Tests
 
 ```bash
-npm test          # unit tests: validation, progress, filters, dates
-npm run test:e2e  # browser flows at desktop and mobile sizes
+npm test          # unit tests: validation, progress, filters, dates, SMTP, .env
+npm run test:e2e  # browser flows at phone, tablet, laptop, and desktop sizes
 npm run build     # includes tsc project checks
 ```
 
@@ -495,5 +534,10 @@ overall member progress that survives completion, host-only teammate removal
 with task unassignment, team deletion, the full no-SMTP password reset flow,
 session invalidation after a reset, session persistence and logout, exact
 progress timestamps, the deadline picker, progress notes and persistence,
-completion/history/restore, sidebar filters/sort/stats, inline rename, mobile
-overflow, the persisted light/dark toggle, and dark mode.
+completion/history/restore, sidebar filters/sort/stats, inline rename, the
+persisted light/dark toggle, and dark mode. The responsive checks assert real
+element bounds and text wrapping at 320px, 360px, 390px, 640px (200% zoom),
+667×375 landscape, 768px, 1024px, 1440px, and 1920px, including long names,
+emails, task titles, overdue deadlines, and popover placement on short screens.
+Unit tests exercise SMTP configuration and delivery against a local fake SMTP
+server; `npm run mail:test` verifies a real provider once credentials are set.

@@ -2,6 +2,7 @@ import { createReadStream, promises as fs } from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadEnvFile } from "./env.mjs";
 import { JsonStore } from "./db.mjs";
 import { normalizeState, emptyState } from "./state.mjs";
 import { sendInviteEmail, sendPasswordResetEmail, smtpConfigured } from "./smtp.mjs";
@@ -20,6 +21,9 @@ import {
   validatePassword,
   verifyPassword,
 } from "./validation.mjs";
+
+// Must run before any TASKLY_* constant below is read.
+loadEnvFile();
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");

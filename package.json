@@ -22,6 +22,7 @@
     "test:watch": "vitest",
     "pretest:e2e": "node scripts/check-node.mjs",
     "test:e2e": "playwright test",
+    "mail:test": "node server/mail-test.mjs",
     "pretypecheck": "node scripts/check-node.mjs",
     "typecheck": "tsc -b"
   },

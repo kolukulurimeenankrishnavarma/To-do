@@ -296,6 +296,72 @@ async function taskTitles(page: Page): Promise<string[]> {
   return page.locator("#task-list .item__title--editable").allTextContents();
 }
 
+/** Check real element bounds, not just scrollWidth (which can be masked). */
+async function assertFitsViewport(page: Page, label: string) {
+  const width = page.viewportSize()?.width ?? 0;
+  const report = await page.evaluate((viewportWidth) => {
+    const selector = [
+      "button",
+      "input",
+      "select",
+      "textarea",
+      "summary",
+      "a",
+      "h1",
+      "h2",
+      "h3",
+      "p",
+      ".card",
+      ".item",
+      ".deadline",
+      ".stats",
+      ".toolbar",
+      ".sidebar",
+      ".team-summary",
+      ".team-member",
+      ".team-switcher",
+      ".app__meta",
+      ".app__account",
+      ".country-picker__popover",
+      ".deadline-panel",
+    ].join(",");
+
+    const offenders = Array.from(document.querySelectorAll(selector))
+      .filter((element) => {
+        const style = getComputedStyle(element);
+        if (style.display === "none" || style.visibility === "hidden") {
+          return false;
+        }
+        const box = element.getBoundingClientRect();
+        if (box.width === 0 || box.height === 0) return false;
+        const outside = box.left < -1 || box.right > viewportWidth + 1;
+        const textSpills =
+          !["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName) &&
+          style.overflowX === "visible" &&
+          element.scrollWidth > element.clientWidth + 1;
+        return outside || textSpills;
+      })
+      .map((element) => {
+        const box = element.getBoundingClientRect();
+        const className =
+          typeof element.className === "string" ? element.className : "";
+        return `${element.tagName.toLowerCase()}.${className} [${Math.round(
+          box.left,
+        )}, ${Math.round(box.right)}] scroll:${element.scrollWidth}/${
+          element.clientWidth
+        }`;
+      })
+      .slice(0, 8);
+
+    return { offenders, scrollWidth: document.documentElement.scrollWidth };
+  }, width);
+
+  expect(report.offenders, `${label}: elements outside viewport`).toEqual([]);
+  expect(report.scrollWidth, `${label}: document overflow`).toBeLessThanOrEqual(
+    width + 1,
+  );
+}
+
 test("deadline picker previews, cancels, saves, clears, and submits while open", async ({
   page,
 }) => {
@@ -1651,6 +1717,12 @@ test("progress updates show an exact timestamp with a relative tooltip", async (
   await item.locator('[data-action="log-progress"]').click();
 
   await expect(item.locator(".log summary")).toContainText("1 update");
+  // The log is saved through a debounced update; wait before reading the DB.
+  await waitForDb((db) => {
+    const user = db.users.find((entry) => entry.email === "timekeeper@example.com");
+    const state = user ? (db.data[user.id] as { tasks?: { progressLog?: unknown[] }[] }) : null;
+    return (state?.tasks?.[0]?.progressLog?.length ?? 0) === 1;
+  });
   const time = item.locator(".log__time").first();
   await expect(time).toHaveAttribute("title", "Updated just now");
 
@@ -1920,12 +1992,7 @@ test("mobile layout stays within the viewport and dark mode applies", async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await signUp(page);
 
-  const noOverflow = () =>
-    page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
-    );
-
-  expect(await noOverflow()).toBe(true);
+  await assertFitsViewport(page, "390 board");
 
   await page.fill("#task-input", "Mobile task");
   await openPicker(page);
@@ -1934,20 +2001,20 @@ test("mobile layout stays within the viewport and dark mode applies", async ({
   expect(panelBox).not.toBeNull();
   expect(panelBox?.x ?? -1).toBeGreaterThanOrEqual(0);
   expect((panelBox?.x ?? 0) + (panelBox?.width ?? 0)).toBeLessThanOrEqual(390);
-  expect(await noOverflow()).toBe(true);
+  await assertFitsViewport(page, "390 deadline picker");
 
   await page.locator("#deadline-cancel").click();
   await page.locator('#task-form button[type="submit"]').click();
   await expect(page.locator(".progress-note").first()).toBeVisible();
-  expect(await noOverflow()).toBe(true);
+  await assertFitsViewport(page, "390 task list");
 
   // The team gate and the team overview both fit on a narrow screen.
   await page.locator("#workspace-team").click();
   await expect(page.locator("#team-gate")).toBeVisible();
-  expect(await noOverflow()).toBe(true);
+  await assertFitsViewport(page, "390 team gate");
   await page.locator("#team-create-submit").click();
   await expect(page.locator("#team-overview")).toBeVisible();
-  expect(await noOverflow()).toBe(true);
+  await assertFitsViewport(page, "390 team overview");
 
   await page.screenshot({
     path: "/tmp/opencode/react-todo-mobile.png",
@@ -1966,9 +2033,86 @@ test("mobile layout stays within the viewport and dark mode applies", async ({
     )
     .toBe("#0b0d14");
 
-  expect(await noOverflow()).toBe(true);
+  await assertFitsViewport(page, "390 dark mode");
   await page.screenshot({
     path: "/tmp/opencode/react-todo-dark.png",
     fullPage: true,
   });
+});
+
+test("layout adapts from small phones to wide desktops", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await signUp(page);
+  await addTaskWithDeadline(page, "Deadline task", "2020-01-01", "10:00");
+
+  const viewports = [
+    { width: 320, height: 568, label: "small phone" },
+    { width: 360, height: 740, label: "phone" },
+    { width: 390, height: 844, label: "large phone" },
+    { width: 640, height: 800, label: "200% zoom reflow" },
+    { width: 667, height: 375, label: "landscape phone" },
+    { width: 768, height: 1024, label: "tablet portrait" },
+    { width: 1024, height: 768, label: "small laptop" },
+    { width: 1440, height: 900, label: "desktop" },
+    { width: 1920, height: 1080, label: "wide desktop" },
+  ];
+
+  for (const viewport of viewports) {
+    await page.setViewportSize({
+      width: viewport.width,
+      height: viewport.height,
+    });
+    await expect(page.locator("#task-input")).toBeVisible();
+    await expect(page.locator(".sort__select")).toBeVisible();
+    await expect(page.locator(".deadline").first()).toBeVisible();
+    await assertFitsViewport(page, viewport.label);
+  }
+
+  // Primary controls remain reachable at the narrowest width.
+  await page.setViewportSize({ width: 320, height: 568 });
+  for (const selector of [
+    ".app__logout",
+    "#theme-toggle",
+    ".check",
+    ".progress__slider",
+    ".icon-btn",
+  ]) {
+    const box = await page.locator(selector).first().boundingBox();
+    expect(box, `${selector} has no box`).not.toBeNull();
+    expect(box?.x ?? -1, `${selector} starts off-screen`).toBeGreaterThanOrEqual(
+      0,
+    );
+    expect(
+      (box?.x ?? 0) + (box?.width ?? 0),
+      `${selector} ends off-screen`,
+    ).toBeLessThanOrEqual(321);
+  }
+
+  // A picker opened low on a short screen flips above the trigger.
+  await page.setViewportSize({ width: 667, height: 375 });
+  await openPicker(page);
+  const panel = await page.locator("#deadline-panel").boundingBox();
+  expect(panel).not.toBeNull();
+  expect(panel?.y ?? -1).toBeGreaterThanOrEqual(0);
+  expect((panel?.y ?? 0) + (panel?.height ?? 0)).toBeLessThanOrEqual(376);
+  await assertFitsViewport(page, "landscape phone with picker open");
+  await page.locator("#deadline-cancel").click();
+});
+
+test("long names, emails, and deadline badges wrap on a 320px phone", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await signUp(page, { name: "A".repeat(80) });
+  await assertFitsViewport(page, "320 long signup name");
+
+  const longTitle = "Finish the released checklist ".repeat(6).trim();
+  await addTaskWithDeadline(page, longTitle, "2020-01-01", "10:00");
+  await expect(page.locator(".deadline").first()).toBeVisible();
+  await assertFitsViewport(page, "320 long title and overdue badge");
+
+  await createTeam(page);
+  const longEmail = `${"x".repeat(200)}@example.com`;
+  await inviteByEmail(page, longEmail);
+  await assertFitsViewport(page, "320 long team name and invite email");
 });

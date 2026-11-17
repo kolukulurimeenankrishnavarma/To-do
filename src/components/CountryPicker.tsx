@@ -6,6 +6,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { COUNTRIES, type Country } from "../lib/countryCodes";
+import { usePopoverPlacement } from "../lib/popoverPlacement";
 import { ChevronIcon } from "./Icons";
 
 type CountryPickerProps = {
@@ -52,6 +53,7 @@ export function CountryPicker({
 
   const rootRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const { side, maxHeight } = usePopoverPlacement(open, rootRef, 340);
 
   const results = useMemo(() => {
     return COUNTRIES.map((country) => ({
@@ -153,7 +155,12 @@ export function CountryPicker({
       </button>
 
       {open ? (
-        <div className="country-picker__popover">
+        <div
+          className={`country-picker__popover${
+            side === "up" ? " country-picker__popover--up" : ""
+          }`}
+          style={{ maxHeight }}
+        >
           <input
             ref={searchRef}
             type="text"
