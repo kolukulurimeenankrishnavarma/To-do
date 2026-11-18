@@ -7,6 +7,7 @@ import {
   presetDeadline,
   timeInputValue,
 } from "../lib/date";
+import { useTransientFlag } from "../lib/useTransientFlag";
 import type { PublicUser, Workspace } from "../types";
 import { DeadlinePicker } from "./DeadlinePicker";
 
@@ -38,20 +39,13 @@ export function TaskForm({
   const [dateValue, setDateValue] = useState("");
   const [timeValue, setTimeValue] = useState("");
   const [error, setError] = useState("");
-  const [shake, setShake] = useState(false);
+  const [shake, triggerShake] = useTransientFlag(340);
 
   const inputRef = useRef<HTMLInputElement>(null);
-  const shakeTimer = useRef<number | undefined>(undefined);
 
   function showError(message: string) {
     setError(message);
-    setShake(false);
-    window.requestAnimationFrame(() => setShake(true));
-
-    if (shakeTimer.current !== undefined) {
-      window.clearTimeout(shakeTimer.current);
-    }
-    shakeTimer.current = window.setTimeout(() => setShake(false), 340);
+    triggerShake();
   }
 
   function togglePicker() {

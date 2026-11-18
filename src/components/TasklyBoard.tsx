@@ -10,11 +10,13 @@ import { ThemeToggle } from "./ThemeToggle";
 import { UserIcon } from "./Icons";
 import { savePrivateState, saveTeamState } from "../lib/api";
 import { formatToday } from "../lib/date";
+import { taskId } from "../lib/id";
 import { appendProgressEntry, clampProgress } from "../lib/progress";
 import { emptyState } from "../lib/storage";
 import { readStoredSort, rememberSort } from "../lib/sortPreference";
 import { readTabTeamId, rememberTeamId } from "../lib/tabState";
 import type { Theme } from "../lib/theme";
+import { useTransientFlag } from "../lib/useTransientFlag";
 import {
   completionEntry,
   filterTasks,
@@ -35,15 +37,6 @@ import type {
   TeamView,
   Workspace,
 } from "../types";
-
-function uid(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `task_${Date.now().toString(36)}_${Math.random()
-    .toString(36)
-    .slice(2, 9)}`;
-}
 
 function initialTeamId(teams: TeamView[]): string | null {
   const remembered = readTabTeamId();
@@ -125,10 +118,9 @@ export function TasklyBoard({
   const [leavingIds, setLeavingIds] = useState<string[]>([]);
   const [enteringTaskId, setEnteringTaskId] = useState<string | null>(null);
   const [enteringHistoryId, setEnteringHistoryId] = useState<string | null>(null);
-  const [historyFlash, setHistoryFlash] = useState(false);
+  const [historyFlash, triggerHistoryFlash] = useTransientFlag(750);
 
   const pendingCompletions = useRef(new Set<string>());
-  const flashTimer = useRef<number | undefined>(undefined);
   const privateLocalSnapshot = useRef(JSON.stringify(initialState));
   const privatePropsSnapshot = useRef(JSON.stringify(initialState));
   const teamSnapshots = useRef<Record<string, string>>(
@@ -296,14 +288,6 @@ export function TasklyBoard({
     return () => window.clearTimeout(timer);
   }, [enteringHistoryId]);
 
-  useEffect(() => {
-    return () => {
-      if (flashTimer.current !== undefined) {
-        window.clearTimeout(flashTimer.current);
-      }
-    };
-  }, []);
-
   function updateState(updater: (prev: AppState) => AppState) {
     if (workspace === "private") {
       setPrivateState(updater);
@@ -431,7 +415,7 @@ export function TasklyBoard({
     assigneeId: string | null,
   ) {
     const task: Task = {
-      id: uid(),
+      id: taskId(),
       title,
       createdAt: Date.now(),
       deadline,
@@ -571,12 +555,7 @@ export function TasklyBoard({
       setLeavingIds((prev) => prev.filter((item) => item !== id));
       setEnteringHistoryId(id);
 
-      setHistoryFlash(false);
-      window.requestAnimationFrame(() => setHistoryFlash(true));
-      if (flashTimer.current !== undefined) {
-        window.clearTimeout(flashTimer.current);
-      }
-      flashTimer.current = window.setTimeout(() => setHistoryFlash(false), 750);
+      triggerHistoryFlash();
     }, 170);
   }
 

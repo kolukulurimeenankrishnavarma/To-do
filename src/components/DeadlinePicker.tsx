@@ -1,15 +1,11 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
+import { useEffect, useRef, type KeyboardEvent } from "react";
 import {
   combineDateAndTime,
   friendlyDeadline,
   fullDeadlineLabel,
 } from "../lib/date";
 import { usePopoverPlacement } from "../lib/popoverPlacement";
+import { useTransientFlag } from "../lib/useTransientFlag";
 import { CalendarIcon, ChevronIcon, XIcon } from "./Icons";
 
 type DeadlinePickerProps = {
@@ -51,9 +47,8 @@ export function DeadlinePicker({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dateRef = useRef<HTMLInputElement>(null);
   const timeRef = useRef<HTMLInputElement>(null);
-  const flashTimer = useRef<number | undefined>(undefined);
-  const [flash, setFlash] = useState(false);
   const { side, maxHeight } = usePopoverPlacement(open, builderRef, 340);
+  const [flash, triggerFlash] = useTransientFlag(750);
 
   const preview = combineDateAndTime(dateValue, timeValue);
 
@@ -78,28 +73,10 @@ export function DeadlinePicker({
     return () => window.cancelAnimationFrame(frame);
   }, [open]);
 
-  useEffect(() => {
-    return () => {
-      if (flashTimer.current !== undefined) {
-        window.clearTimeout(flashTimer.current);
-      }
-    };
-  }, []);
-
-  function flashTrigger() {
-    setFlash(false);
-    window.requestAnimationFrame(() => setFlash(true));
-
-    if (flashTimer.current !== undefined) {
-      window.clearTimeout(flashTimer.current);
-    }
-    flashTimer.current = window.setTimeout(() => setFlash(false), 750);
-  }
-
   function handleSave() {
     if (preview === null) return;
     onSave();
-    flashTrigger();
+    triggerFlash();
     triggerRef.current?.focus();
   }
 

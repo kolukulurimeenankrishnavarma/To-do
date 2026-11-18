@@ -1,18 +1,11 @@
+import { safeLocalStorage } from "./storage";
+
 export type Theme = "light" | "dark";
 
 const THEME_KEY = "taskly.theme";
 
-function getStorage(): Storage | null {
-  try {
-    if (typeof window === "undefined") return null;
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
 export function readStoredTheme(): Theme | null {
-  const storage = getStorage();
+  const storage = safeLocalStorage();
   if (!storage) return null;
 
   try {
@@ -24,7 +17,7 @@ export function readStoredTheme(): Theme | null {
 }
 
 export function rememberTheme(theme: Theme): void {
-  const storage = getStorage();
+  const storage = safeLocalStorage();
   if (!storage) return;
 
   try {

@@ -1,12 +1,12 @@
 import { TAB_TEAM_KEY } from "./constants";
-import { getSessionStorage } from "./localStorage";
+import { safeSessionStorage } from "./storage";
 
 /**
  * The active team is chosen per tab, so two tabs can look at different teams
  * while the signed-in account stays the same.
  */
 export function readTabTeamId(): string | null {
-  const storage = getSessionStorage();
+  const storage = safeSessionStorage();
   if (!storage) return null;
 
   try {
@@ -18,7 +18,7 @@ export function readTabTeamId(): string | null {
 }
 
 export function rememberTeamId(teamId: string | null): void {
-  const storage = getSessionStorage();
+  const storage = safeSessionStorage();
   if (!storage) return;
 
   try {
