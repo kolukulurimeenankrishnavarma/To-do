@@ -3,6 +3,8 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnvFile } from "./env.mjs";
+import { HttpError, fail, sendJson } from "./http.mjs";
+import { enforceTaskPermissions, requireHost, requireTeam } from "./permissions.mjs";
 import { JsonStore } from "./db.mjs";
 import { normalizeState, emptyState } from "./state.mjs";
 import { sendInviteEmail, sendPasswordResetEmail, smtpConfigured } from "./smtp.mjs";
@@ -56,27 +58,6 @@ const MIME_TYPES = {
   ".woff2": "font/woff2",
 };
 
-class HttpError extends Error {
-  constructor(status, message) {
-    super(message);
-    this.status = status;
-  }
-}
-
-function fail(status, message) {
-  throw new HttpError(status, message);
-}
-
-function sendJson(res, status, payload) {
-  const body = JSON.stringify(payload);
-  res.writeHead(status, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Content-Length": Buffer.byteLength(body),
-    "Cache-Control": "no-store",
-  });
-  res.end(body);
-}
-
 async function readBody(req) {
   const chunks = [];
   let size = 0;
@@ -114,12 +95,14 @@ function getUser(db, userId) {
   return db.users.find((user) => user.id === userId) ?? null;
 }
 
-function getUserByEmail(db, emailKey) {
-  return db.users.find((user) => user.emailKey === emailKey) ?? null;
+function requireExistingUser(db, userId, status, message) {
+  const user = getUser(db, userId);
+  if (!user) fail(status, message);
+  return user;
 }
 
-function getTeam(db, teamId) {
-  return db.teams.find((team) => team.id === teamId) ?? null;
+function getUserByEmail(db, emailKey) {
+  return db.users.find((user) => user.emailKey === emailKey) ?? null;
 }
 
 function isMember(team, userId) {
@@ -128,84 +111,6 @@ function isMember(team, userId) {
 
 function memberIds(team) {
   return team.members.map((member) => member.userId);
-}
-
-/**
- * Team state is saved as a whole snapshot, so permissions are checked by
- * comparing the incoming snapshot with the stored one. Members may always
- * comment on and reassign work, but only the responsible member can move a
- * task to history or change its progress. Unassigned tasks can be claimed by
- * any member as they work on them.
- */
-function enforceTaskPermissions(team, next, userId) {
-  const previousTasks = new Map(
-    team.state.tasks.map((task) => [task.id, task]),
-  );
-  const previousHistory = new Map(
-    team.state.history.map((task) => [task.id, task]),
-  );
-  const nextTasks = new Map(next.tasks.map((task) => [task.id, task]));
-  const nextHistory = new Map(next.history.map((task) => [task.id, task]));
-
-  for (const [id, previous] of previousTasks) {
-    const nextTask = nextTasks.get(id);
-    const finished = nextHistory.get(id);
-
-    if (!nextTask && finished) {
-      if (previous.assigneeId && previous.assigneeId !== userId) {
-        fail(403, "Only the assigned member can complete this task.");
-      }
-      if (!previous.assigneeId) {
-        // Finishing an unassigned task claims it for the member who did it.
-        finished.assigneeId = userId;
-      }
-      continue;
-    }
-
-    if (!nextTask) {
-      if (previous.assigneeId !== userId) {
-        fail(403, "Only the assigned member can delete this task.");
-      }
-      continue;
-    }
-
-    if (nextTask.progress !== previous.progress) {
-      const owner = previous.assigneeId ?? nextTask.assigneeId;
-      if (owner !== userId) {
-        fail(403, "Only the assigned member can change this task's progress.");
-      }
-    }
-
-    if (nextTask.title !== previous.title && previous.assigneeId !== userId) {
-      fail(403, "Only the assigned member can rename this task.");
-    }
-  }
-
-  for (const [id, previous] of previousHistory) {
-    const nextItem = nextHistory.get(id);
-    const restored = nextTasks.get(id);
-
-    if (!nextItem) {
-      // Either removed from history or moved back to the to-do list.
-      const owner = previous.assigneeId;
-      if (owner !== null && owner !== userId) {
-        fail(
-          403,
-          restored
-            ? "Only the assigned member can restore this task."
-            : "Only the assigned member can remove this task from history.",
-        );
-      }
-      continue;
-    }
-
-    if (nextItem.title !== previous.title) {
-      const owner = previous.assigneeId;
-      if (owner !== null && owner !== userId) {
-        fail(403, "Only the assigned member can rename this task.");
-      }
-    }
-  }
 }
 
 function pendingInvites(team) {
@@ -481,9 +386,7 @@ async function handleLogin(req, res) {
   }
 
   const token = await store.mutate((current) => {
-    if (!getUser(current, user.id)) {
-      fail(404, "This account is no longer available.");
-    }
+    requireExistingUser(current, user.id, 404, "This account is no longer available.");
     return createSession(current, user.id);
   });
 
@@ -596,8 +499,12 @@ async function handleCreateTeam(req, res, auth, clientId) {
   const name = normalizeName(body.name).slice(0, 80);
 
   const team = await store.mutate((db) => {
-    const user = getUser(db, auth.user.id);
-    if (!user) fail(401, "Your account is no longer available.");
+    const user = requireExistingUser(
+      db,
+      auth.user.id,
+      401,
+      "Your account is no longer available.",
+    );
 
     const now = Date.now();
     const created = {
@@ -625,15 +532,8 @@ async function handleInvite(req, res, auth, teamId, clientId) {
   const { email, key } = parsed.value;
 
   const result = await store.mutate((db) => {
-    const team = getTeam(db, teamId);
-    if (!team) fail(404, "This team is no longer available.");
-
-    const membership = team.members.find(
-      (member) => member.userId === auth.user.id,
-    );
-    if (!membership || membership.role !== "host") {
-      fail(403, "Only the team host can invite teammates.");
-    }
+    const team = requireTeam(db, teamId);
+    requireHost(team, auth.user.id, "invite teammates");
 
     const existing = getUserByEmail(db, key);
     if (existing && isMember(team, existing.id)) {
@@ -700,8 +600,7 @@ async function handleInviteResponse(
   clientId,
 ) {
   const result = await store.mutate((db) => {
-    const team = getTeam(db, teamId);
-    if (!team) fail(404, "This team is no longer available.");
+    const team = requireTeam(db, teamId);
 
     const invite = team.invites.find(
       (entry) => entry.id === inviteId && entry.status === "pending",
@@ -741,15 +640,8 @@ async function handleInviteResponse(
 
 async function handleCancelInvite(req, res, auth, teamId, inviteId, clientId) {
   const result = await store.mutate((db) => {
-    const team = getTeam(db, teamId);
-    if (!team) fail(404, "This team is no longer available.");
-
-    const membership = team.members.find(
-      (member) => member.userId === auth.user.id,
-    );
-    if (!membership || membership.role !== "host") {
-      fail(403, "Only the team host can cancel invitations.");
-    }
+    const team = requireTeam(db, teamId);
+    requireHost(team, auth.user.id, "cancel invitations");
 
     const invite = team.invites.find(
       (entry) => entry.id === inviteId && entry.status === "pending",
@@ -767,15 +659,8 @@ async function handleCancelInvite(req, res, auth, teamId, inviteId, clientId) {
 
 async function handleRemoveMember(req, res, auth, teamId, memberId, clientId) {
   const result = await store.mutate((db) => {
-    const team = getTeam(db, teamId);
-    if (!team) fail(404, "This team is no longer available.");
-
-    const membership = team.members.find(
-      (member) => member.userId === auth.user.id,
-    );
-    if (!membership || membership.role !== "host") {
-      fail(403, "Only the team host can remove teammates.");
-    }
+    const team = requireTeam(db, teamId);
+    requireHost(team, auth.user.id, "remove teammates");
 
     if (memberId === auth.user.id) {
       fail(400, "Delete the team instead of removing yourself.");
@@ -803,15 +688,8 @@ async function handleRemoveMember(req, res, auth, teamId, memberId, clientId) {
 
 async function handleDeleteTeam(req, res, auth, teamId, clientId) {
   const members = await store.mutate((db) => {
-    const team = getTeam(db, teamId);
-    if (!team) fail(404, "This team is no longer available.");
-
-    const membership = team.members.find(
-      (member) => member.userId === auth.user.id,
-    );
-    if (!membership || membership.role !== "host") {
-      fail(403, "Only the team host can delete this team.");
-    }
+    const team = requireTeam(db, teamId);
+    requireHost(team, auth.user.id, "delete this team");
 
     const ids = memberIds(team);
     db.teams = db.teams.filter((entry) => entry.id !== teamId);
@@ -905,9 +783,7 @@ async function handleApi(req, res, url) {
     const next = normalizeState(body.state);
 
     await store.mutate((current) => {
-      if (!getUser(current, auth.user.id)) {
-        fail(401, "Your account is no longer available.");
-      }
+      requireExistingUser(current, auth.user.id, 401, "Your account is no longer available.");
       current.data[auth.user.id] = next;
     });
 
@@ -930,8 +806,7 @@ async function handleApi(req, res, url) {
     const next = normalizeState(body.state);
 
     const members = await store.mutate((current) => {
-      const team = getTeam(current, teamId);
-      if (!team) fail(404, "This team is no longer available.");
+      const team = requireTeam(current, teamId);
       if (!isMember(team, auth.user.id)) {
         fail(403, "You are not a member of this team.");
       }
