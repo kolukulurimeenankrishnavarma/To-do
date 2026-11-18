@@ -6,6 +6,7 @@ import { canManage } from "./taskPermissions";
 import { emptyState } from "./storage";
 import { readStoredSort, rememberSort } from "./sortPreference";
 import { readTabTeamId, rememberTeamId } from "./tabState";
+import { rememberSnapshot } from "./snapshotHistory";
 import { useTransientFlag } from "./useTransientFlag";
 import {
   completionEntry,
@@ -97,6 +98,7 @@ function initialTeamId(teams: TeamView[]): string | null {
   const pendingCompletions = useRef(new Set<string>());
   const privateLocalSnapshot = useRef(JSON.stringify(initialState));
   const privatePropsSnapshot = useRef(JSON.stringify(initialState));
+  const privateSavedSnapshots = useRef<string[]>([]);
   const teamSnapshots = useRef<Record<string, string>>(
     Object.fromEntries(
       teams.map((view) => [
@@ -112,6 +114,9 @@ function initialTeamId(teams: TeamView[]): string | null {
         JSON.stringify(view.team.state),
       ]),
     ),
+  );
+  const teamSavedSnapshots = useRef<Record<string, string[]>>(
+    Object.fromEntries(teams.map((view) => [view.team.id, []])),
   );
   const pendingTeamId = useRef<string | null>(null);
   const saveChains = useRef<Record<string, Promise<void>>>({});
@@ -154,14 +159,18 @@ function initialTeamId(teams: TeamView[]): string | null {
         if (!(view.team.id in next)) {
           next[view.team.id] = view.team.state;
           teamSnapshots.current[view.team.id] = serialized;
+          teamSavedSnapshots.current[view.team.id] ??= [];
           changed = true;
           continue;
         }
 
-        // Ignore a props echo of the state this tab already has (or is
-        // saving), so a refresh cannot roll back unsaved local edits.
+        // Ignore a props echo of the state this tab already has (or has
+        // saved), so a late refresh cannot roll back newer local edits.
         if (!propsChanged) continue;
         if (teamSnapshots.current[view.team.id] === serialized) continue;
+        if (teamSavedSnapshots.current[view.team.id]?.includes(serialized)) {
+          continue;
+        }
 
         next[view.team.id] = view.team.state;
         teamSnapshots.current[view.team.id] = serialized;
@@ -173,6 +182,7 @@ function initialTeamId(teams: TeamView[]): string | null {
         delete next[id];
         delete teamSnapshots.current[id];
         delete teamPropsSnapshots.current[id];
+        delete teamSavedSnapshots.current[id];
         changed = true;
       }
 
@@ -204,12 +214,13 @@ function initialTeamId(teams: TeamView[]): string | null {
   }, [teams, activeTeamId]);
 
   // Server refreshes arrive through props. Adopt another client's private
-  // snapshot unless it is the one this tab already has or is saving.
+  // snapshot unless it is one this tab already has or has saved.
   useEffect(() => {
     const serialized = JSON.stringify(initialState);
     if (serialized === privatePropsSnapshot.current) return;
     privatePropsSnapshot.current = serialized;
     if (serialized === privateLocalSnapshot.current) return;
+    if (privateSavedSnapshots.current.includes(serialized)) return;
 
     privateLocalSnapshot.current = serialized;
     setPrivateState(initialState);
@@ -219,6 +230,7 @@ function initialTeamId(teams: TeamView[]): string | null {
     const serialized = JSON.stringify(privateState);
     if (serialized === privateLocalSnapshot.current) return;
     privateLocalSnapshot.current = serialized;
+    rememberSnapshot(privateSavedSnapshots.current, serialized);
     queueSave(`private:${user.id}`, () => savePrivateState(privateState));
   }, [privateState, user.id]);
 
@@ -231,6 +243,8 @@ function initialTeamId(teams: TeamView[]): string | null {
       if (serialized === teamSnapshots.current[view.team.id]) continue;
 
       teamSnapshots.current[view.team.id] = serialized;
+      const saved = (teamSavedSnapshots.current[view.team.id] ??= []);
+      rememberSnapshot(saved, serialized);
       queueSave(`team:${view.team.id}`, () =>
         saveTeamState(view.team.id, current),
       );
@@ -320,6 +334,7 @@ function initialTeamId(teams: TeamView[]): string | null {
       }));
       teamSnapshots.current[teamId] = JSON.stringify(emptyState());
       teamPropsSnapshots.current[teamId] = JSON.stringify(emptyState());
+      teamSavedSnapshots.current[teamId] = [];
       selectTeam(teamId);
     }
     return result;
@@ -379,6 +394,7 @@ function initialTeamId(teams: TeamView[]): string | null {
     });
     delete teamSnapshots.current[teamId];
     delete teamPropsSnapshots.current[teamId];
+    delete teamSavedSnapshots.current[teamId];
     if (remaining.length > 0) {
       selectTeam(remaining[0].team.id);
     } else {
