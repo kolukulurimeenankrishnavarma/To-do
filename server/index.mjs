@@ -1,9 +1,11 @@
-import { createReadStream, promises as fs } from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnvFile } from "./env.mjs";
 import { HttpError, fail, sendJson, readBody } from "./http.mjs";
+import { createEvents } from "./sse.mjs";
+import { createResponses } from "./responses.mjs";
+import { createStaticFiles } from "./staticFiles.mjs";
 import { enforceTaskPermissions, requireHost, requireTeam } from "./permissions.mjs";
 import { JsonStore } from "./db.mjs";
 import { normalizeState, emptyState } from "./state.mjs";
@@ -33,12 +35,7 @@ import {
   requireExistingUser,
   sessionPayload,
 } from "./views.mjs";
-import {
-  clientIdFrom,
-  createSession,
-  findSessionByToken,
-  requireAuth,
-} from "./sessions.mjs";
+import { clientIdFrom, createSession, requireAuth } from "./sessions.mjs";
 
 // Must run before any TASKLY_* constant below is read.
 loadEnvFile();
@@ -55,135 +52,12 @@ const TEST_MODE = process.env.TASKLY_TEST_MODE === "1";
 const PUBLIC_URL = process.env.TASKLY_PUBLIC_URL ?? "";
 const TRUST_PROXY = process.env.TASKLY_TRUST_PROXY === "1";
 
-const MIME_TYPES = {
-  ".css": "text/css; charset=utf-8",
-  ".html": "text/html; charset=utf-8",
-  ".ico": "image/x-icon",
-  ".jpeg": "image/jpeg",
-  ".jpg": "image/jpeg",
-  ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".map": "application/json; charset=utf-8",
-  ".png": "image/png",
-  ".svg": "image/svg+xml",
-  ".txt": "text/plain; charset=utf-8",
-  ".webmanifest": "application/manifest+json",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-};
-
-/** Every successful sign-in-like response has the same token/session shape. */
-function sendSession(res, status, token, userId) {
-  const db = store.get();
-  sendJson(res, status, {
-    token,
-    session: sessionPayload(db, getUser(db, userId)),
-  });
-}
-
-/** Notify affected clients once, then answer the mutating request. */
-function commitAndNotify(
-  res,
-  {
-    targets,
-    exceptClientId = "",
-    status = 200,
-    payload = {},
-    withRevision = false,
-  },
-) {
-  broadcast(targets, exceptClientId);
-  sendJson(res, status, {
-    ok: true,
-    ...payload,
-    ...(withRevision ? { revision: store.get().revision } : {}),
-  });
-}
-
 function publicBase(req) {
   return buildPublicBase(req, {
     configuredUrl: PUBLIC_URL,
     trustProxy: TRUST_PROXY,
     fallbackHost: `127.0.0.1:${PORT}`,
   });
-}
-
-/* ---------- Realtime connections ---------- */
-
-const clients = new Set();
-
-function removeClient(client) {
-  if (client.heartbeat) clearInterval(client.heartbeat);
-  clients.delete(client);
-}
-
-function broadcast(userIds, exceptClientId = "") {
-  if (typeof userIds === "string") userIds = [userIds];
-  const targets = new Set(userIds.filter(Boolean));
-  if (targets.size === 0) return;
-
-  const data = JSON.stringify({ revision: store.get().revision });
-  for (const client of clients) {
-    if (!targets.has(client.userId)) continue;
-    if (exceptClientId && client.clientId === exceptClientId) continue;
-    try {
-      client.res.write(`event: change\ndata: ${data}\n\n`);
-    } catch {
-      removeClient(client);
-    }
-  }
-}
-
-function broadcastAll() {
-  broadcast([...clients].map((client) => client.userId));
-}
-
-function openEvents(req, res, url) {
-  const db = store.get();
-  const found = findSessionByToken(db, url.searchParams.get("token") ?? "");
-
-  if (!found) {
-    sendJson(res, 401, { error: "Sign in to receive live updates." });
-    return;
-  }
-  if (!found.user) {
-    sendJson(res, 401, { error: "This account is no longer available." });
-    return;
-  }
-  const user = found.user;
-
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream; charset=utf-8",
-    "Cache-Control": "no-cache, no-transform",
-    Connection: "keep-alive",
-    "X-Accel-Buffering": "no",
-  });
-  res.write("retry: 2000\n\n");
-  res.write(
-    `event: ready\ndata: ${JSON.stringify({
-      revision: db.revision,
-    })}\n\n`,
-  );
-
-  const client = {
-    res,
-    userId: user.id,
-    clientId: url.searchParams.get("client") ?? "",
-    heartbeat: null,
-  };
-  client.heartbeat = setInterval(() => {
-    try {
-      res.write(": ping\n\n");
-    } catch {
-      removeClient(client);
-    }
-  }, 25_000);
-  clients.add(client);
-
-  const cleanup = () => removeClient(client);
-  req.on("close", cleanup);
-  res.on("close", cleanup);
-  res.on("error", cleanup);
 }
 
 /* ---------- Route handlers ---------- */
@@ -221,7 +95,7 @@ async function handleRegister(req, res) {
     return { token, userId: user.id };
   });
 
-  sendSession(res, 201, result.token, result.userId);
+  responses.sendSession(res, 201, result.token, result.userId);
 }
 
 async function handleLogin(req, res) {
@@ -246,7 +120,7 @@ async function handleLogin(req, res) {
     return createSession(current, user.id);
   });
 
-  sendSession(res, 200, token, user.id);
+  responses.sendSession(res, 200, token, user.id);
 }
 
 async function handleForgotPassword(req, res) {
@@ -334,8 +208,8 @@ async function handleResetPassword(req, res, clientId) {
     return { token: sessionToken, userId: user.id };
   });
 
-  broadcast([result.userId], clientId);
-  sendSession(res, 200, result.token, result.userId);
+  events.broadcast([result.userId], clientId);
+  responses.sendSession(res, 200, result.token, result.userId);
 }
 
 async function handleCreateTeam(req, res, auth, clientId) {
@@ -364,7 +238,7 @@ async function handleCreateTeam(req, res, auth, clientId) {
     return created;
   });
 
-  commitAndNotify(res, {
+  responses.commitAndNotify(res, {
     targets: [auth.user.id],
     exceptClientId: clientId,
     status: 201,
@@ -422,7 +296,7 @@ async function handleInvite(req, res, auth, teamId, clientId) {
     link: inviteUrl,
   });
 
-  commitAndNotify(res, {
+  responses.commitAndNotify(res, {
     targets: [auth.user.id, result.inviteeId],
     exceptClientId: clientId,
     payload: {
@@ -479,7 +353,7 @@ async function handleInviteResponse(
     return memberIds(team);
   });
 
-  commitAndNotify(res, {
+  responses.commitAndNotify(res, {
     targets: [...result, auth.user.id],
     exceptClientId: clientId,
     payload: { teamId },
@@ -501,7 +375,7 @@ async function handleCancelInvite(req, res, auth, teamId, inviteId, clientId) {
     return { members: memberIds(team), inviteeId: invitee ? invitee.id : null };
   });
 
-  commitAndNotify(res, {
+  responses.commitAndNotify(res, {
     targets: [...result.members, result.inviteeId],
     exceptClientId: clientId,
     payload: { teamId },
@@ -533,7 +407,7 @@ async function handleRemoveMember(req, res, auth, teamId, memberId, clientId) {
     return { members: memberIds(team), removedId: memberId };
   });
 
-  commitAndNotify(res, {
+  responses.commitAndNotify(res, {
     targets: [...result.members, result.removedId],
     exceptClientId: clientId,
     payload: { teamId },
@@ -550,7 +424,7 @@ async function handleDeleteTeam(req, res, auth, teamId, clientId) {
     return ids;
   });
 
-  commitAndNotify(res, { targets: members, exceptClientId: clientId });
+  responses.commitAndNotify(res, { targets: members, exceptClientId: clientId });
 }
 
 async function handleApi(req, res, url) {
@@ -573,13 +447,13 @@ async function handleApi(req, res, url) {
   }
 
   if (method === "GET" && route === "/api/events") {
-    openEvents(req, res, url);
+    events.openEvents(req, res, url);
     return;
   }
 
   if (method === "POST" && route === "/api/test/reset" && TEST_MODE) {
     await store.reset();
-    broadcastAll();
+    events.broadcastAll();
     sendJson(res, 200, { ok: true });
     return;
   }
@@ -640,7 +514,7 @@ async function handleApi(req, res, url) {
       current.data[auth.user.id] = next;
     });
 
-    commitAndNotify(res, {
+    responses.commitAndNotify(res, {
       targets: [auth.user.id],
       exceptClientId: clientId,
       withRevision: true,
@@ -681,7 +555,7 @@ async function handleApi(req, res, url) {
       return memberIds(team);
     });
 
-    commitAndNotify(res, {
+    responses.commitAndNotify(res, {
       targets: members,
       exceptClientId: clientId,
       withRevision: true,
@@ -767,76 +641,14 @@ async function handleApi(req, res, url) {
   fail(404, "Not found.");
 }
 
-/* ---------- Static files ---------- */
-
-async function serveStatic(req, res, url) {
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    fail(405, "Method not allowed.");
-  }
-
-  let relative = url.pathname === "/" ? "index.html" : url.pathname;
-  try {
-    relative = decodeURIComponent(relative);
-  } catch {
-    fail(400, "Invalid path.");
-  }
-  relative = relative.replace(/^\/+/, "");
-
-  let filePath = path.resolve(DIST, relative);
-  if (filePath !== DIST && !filePath.startsWith(`${DIST}${path.sep}`)) {
-    fail(403, "Forbidden.");
-  }
-
-  let stat = null;
-  try {
-    stat = await fs.stat(filePath);
-  } catch {
-    stat = null;
-  }
-
-  if (!stat || stat.isDirectory()) {
-    const acceptsHtml = String(req.headers.accept ?? "").includes("text/html");
-    if (!acceptsHtml) fail(404, "Not found.");
-    filePath = path.join(DIST, "index.html");
-    try {
-      stat = await fs.stat(filePath);
-    } catch {
-      res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" });
-      res.end(
-        "Taskly API is running. Build the web app first with `npm run build`, then restart the server.",
-      );
-      return;
-    }
-  }
-
-  const type =
-    MIME_TYPES[path.extname(filePath).toLowerCase()] ??
-    "application/octet-stream";
-  res.writeHead(200, {
-    "Content-Type": type,
-    "Content-Length": stat.size,
-    "Cache-Control": filePath.endsWith("index.html")
-      ? "no-store"
-      : "public, max-age=31536000, immutable",
-  });
-
-  if (req.method === "HEAD") {
-    res.end();
-    return;
-  }
-
-  createReadStream(filePath)
-    .on("error", () => {
-      if (!res.headersSent) res.writeHead(500);
-      res.end();
-    })
-    .pipe(res);
-}
-
 /* ---------- Server ---------- */
 
 const store = new JsonStore(DB_FILE);
 await store.init();
+
+const events = createEvents({ store });
+const responses = createResponses({ store, broadcast: events.broadcast });
+const staticFiles = createStaticFiles({ dist: DIST });
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(
@@ -849,7 +661,7 @@ const server = http.createServer(async (req, res) => {
       await handleApi(req, res, url);
       return;
     }
-    await serveStatic(req, res, url);
+    await staticFiles.serveStatic(req, res, url);
   } catch (error) {
     if (res.headersSent) {
       res.destroy();
@@ -877,15 +689,7 @@ server.listen(PORT, HOST, () => {
 });
 
 function shutdown() {
-  for (const client of clients) {
-    removeClient(client);
-    try {
-      client.res.end();
-    } catch {
-      // Ignore closed connections.
-    }
-  }
-  clients.clear();
+  events.close();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 1500).unref();
 }
