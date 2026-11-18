@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { EmptyState } from "./EmptyState";
 import { HistoryItem } from "./HistoryItem";
 import { StatsBar } from "./StatsBar";
 import { TaskForm } from "./TaskForm";
@@ -902,40 +903,32 @@ export function TasklyBoard({
                   ) : null}
 
                   {state.tasks.length === 0 ? (
-                    <div className="empty">
-                      <div className="empty__icon" aria-hidden="true">
-                        {filter === "all" ? "🌱" : "🎉"}
-                      </div>
-                      <p className="empty__title">
-                        {filter === "all"
+                    <EmptyState
+                      icon={filter === "all" ? "🌱" : "🎉"}
+                      title={
+                        filter === "all"
                           ? workspace === "team"
                             ? "Nothing on the team plate"
                             : "Nothing on your plate"
-                          : filteredEmpty.title}
-                      </p>
-                      <p className="empty__text">
-                        {filter === "all"
+                          : filteredEmpty.title
+                      }
+                      text={
+                        filter === "all"
                           ? workspace === "team"
                             ? "Add a shared task above to get started."
                             : "Add a task above to get started."
-                          : filteredEmpty.text}
-                      </p>
-                    </div>
+                          : filteredEmpty.text
+                      }
+                    />
                   ) : visibleTasks.length === 0 ? (
-                    <div className="empty empty--filtered">
-                      <div className="empty__icon" aria-hidden="true">
-                        {filter === "overdue" ? "✅" : "🎉"}
-                      </div>
-                      <p className="empty__title">{filteredEmpty.title}</p>
-                      <p className="empty__text">{filteredEmpty.text}</p>
-                      <button
-                        className="link-btn"
-                        type="button"
-                        onClick={() => setFilter("all")}
-                      >
-                        Show all tasks
-                      </button>
-                    </div>
+                    <EmptyState
+                      filtered
+                      icon={filter === "overdue" ? "✅" : "🎉"}
+                      title={filteredEmpty.title}
+                      text={filteredEmpty.text}
+                      actionLabel="Show all tasks"
+                      onAction={() => setFilter("all")}
+                    />
                   ) : (
                     <ul className="list" id="task-list">
                       {visibleTasks.map((task) => (
@@ -989,16 +982,11 @@ export function TasklyBoard({
                   </div>
 
                   {state.history.length === 0 ? (
-                    <div className="empty">
-                      <div className="empty__icon" aria-hidden="true">
-                        🏁
-                      </div>
-                      <p className="empty__title">No finished tasks yet</p>
-                      <p className="empty__text">
-                        Check off a task and it will show up here with its full
-                        update history and an on-time or late flag.
-                      </p>
-                    </div>
+                    <EmptyState
+                      icon="🏁"
+                      title="No finished tasks yet"
+                      text="Check off a task and it will show up here with its full update history and an on-time or late flag."
+                    />
                   ) : (
                     <ul className="list list--history" id="history-list">
                       {state.history.map((item) => (
