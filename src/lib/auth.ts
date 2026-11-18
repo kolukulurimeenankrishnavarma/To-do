@@ -6,6 +6,7 @@ import {
   MIN_MOBILE_DIGITS,
   MIN_PASSWORD_LENGTH,
 } from "./constants";
+import type { Result } from "../types";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const MOBILE_PATTERN = new RegExp(
@@ -22,9 +23,7 @@ export type ParsedMobile = {
   key: string;
 };
 
-export type FieldResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: string };
+export type FieldResult<T> = Result<{ value: T }>;
 
 export function normalizeName(value: string): string {
   return value.replace(/\s+/g, " ").trim();
