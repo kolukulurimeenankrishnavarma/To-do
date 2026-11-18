@@ -165,7 +165,8 @@ The Node server serves the built `dist/` app and the API from the same origin at
 | `TASKLY_PORT` | `8787` | API and production web port |
 | `TASKLY_HOST` | `127.0.0.1` | Bind address (`0.0.0.0` for a LAN) |
 | `TASKLY_DB` | `data/db.json` | JSON database file |
-| `TASKLY_PUBLIC_URL` | request origin | Base URL used in invite and reset links |
+| `TASKLY_PUBLIC_URL` | request origin | Base URL used in invite and reset links (set this in production) |
+| `TASKLY_TRUST_PROXY` | off | Set to `1` behind Render/reverse proxies so HTTPS links use forwarded headers |
 | `TASKLY_TEST_MODE` | off | Enables `POST /api/test/reset` for E2E; also ignores `.env` |
 | `TASKLY_SKIP_ENV_FILE` | off | Set to `1` to ignore `.env` without test mode |
 | `TASKLY_SMTP_URL` | unset | SMTP URL, e.g. `smtp://user:pass@smtp.example.com:587` |
@@ -208,6 +209,55 @@ Delivery errors are reported to the caller rather than failing silently.
 
 JSON writes are serialized in-process and written atomically (`write temp file →
 rename`). Back up `data/db.json` to keep accounts and tasks.
+
+### Gmail app password
+
+Gmail needs an **app password**; your normal Google password will not work.
+
+1. Turn on 2-step verification at <https://myaccount.google.com/security>.
+2. Open <https://myaccount.google.com/apppasswords>, choose **Mail** and
+   **Other (Custom name)** such as `Taskly`, then generate.
+3. Copy the 16-character password (spaces can be omitted).
+4. Use your full Gmail address as `TASKLY_SMTP_USER`, that app password as
+   `TASKLY_SMTP_PASS`, and `Taskly <you@gmail.com>` as `TASKLY_SMTP_FROM`.
+
+Never put the app password in a committed file. Keep it in local `.env` or in
+the Render dashboard's environment variables.
+
+## Deploy to Render
+
+This app needs a Node server for accounts, the JSON database, SSE realtime
+updates, and SMTP email. **GitHub Pages only serves static files**, so it cannot
+run Taskly; use Render for the app (GitHub Pages could only host a separate
+static landing page).
+
+Both blueprints build the client and run the same server that serves `dist/`
+and `/api/*` from one origin. `TASKLY_TRUST_PROXY=1` makes generated links use
+`https://` on Render.
+
+1. Push this repository to GitHub (it is already public at
+   `https://github.com/kolukulurimeenankrishnavarma/To-do.git`).
+2. In Render, choose **New → Blueprint** and connect that repository.
+3. Select `render.yaml` for a free web service, or `render-persistent.yaml` if
+   you want data to survive restarts (paid plan with a persistent disk).
+4. When prompted, set:
+   - `TASKLY_SMTP_USER` = your full Gmail address
+   - `TASKLY_SMTP_PASS` = the 16-character Gmail app password
+   - `TASKLY_SMTP_FROM` = `Taskly <you@gmail.com>`
+5. After the first deploy, open the service's **Environment** tab and add
+   `TASKLY_PUBLIC_URL` = `https://<your-service>.onrender.com` (or your custom
+   domain), then **Redeploy**. This is the address in invitation and reset
+   emails; setting it explicitly prevents links from depending on request
+   headers.
+6. Check `https://<your-service>.onrender.com/api/health` and `/api/meta`.
+   `smtpConfigured` should be `true`. Invite a teammate and use **Forgot
+   password** to confirm real emails arrive.
+
+Free web services sleep when idle, so the first request after inactivity can be
+slow, and the JSON database is ephemeral. Use `render-persistent.yaml` (or add a
+persistent disk yourself) for a real shared deployment. To add it manually:
+create a 1 GB disk mounted at `/data` on a paid plan and set
+`TASKLY_DB=/data/db.json`.
 
 ## Scripts
 

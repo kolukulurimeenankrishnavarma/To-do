@@ -6,6 +6,7 @@ import { loadEnvFile } from "./env.mjs";
 import { JsonStore } from "./db.mjs";
 import { normalizeState, emptyState } from "./state.mjs";
 import { sendInviteEmail, sendPasswordResetEmail, smtpConfigured } from "./smtp.mjs";
+import { publicBase as buildPublicBase } from "./urls.mjs";
 import {
   RESET_TOKEN_MAX_AGE,
   SESSION_MAX_AGE,
@@ -35,6 +36,7 @@ const PORT = Number(process.env.TASKLY_PORT || process.env.PORT || 8787);
 const HOST = process.env.TASKLY_HOST || "127.0.0.1";
 const TEST_MODE = process.env.TASKLY_TEST_MODE === "1";
 const PUBLIC_URL = process.env.TASKLY_PUBLIC_URL ?? "";
+const TRUST_PROXY = process.env.TASKLY_TRUST_PROXY === "1";
 const MAX_BODY = 5 * 1024 * 1024;
 
 const MIME_TYPES = {
@@ -307,9 +309,11 @@ function clientIdFrom(req) {
 }
 
 function publicBase(req) {
-  const base =
-    PUBLIC_URL || `http://${req.headers.host || `127.0.0.1:${PORT}`}`;
-  return base.replace(/\/$/, "");
+  return buildPublicBase(req, {
+    configuredUrl: PUBLIC_URL,
+    trustProxy: TRUST_PROXY,
+    fallbackHost: `127.0.0.1:${PORT}`,
+  });
 }
 
 function createSession(db, userId) {

@@ -1,0 +1,42 @@
+# Same Taskly deployment as render.yaml, but with a persistent disk so
+# accounts, teams, tasks, and sessions survive deploys and instance restarts.
+# Render persistent disks require a paid plan (Starter or above).
+
+services:
+  - type: web
+    name: taskly
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    disk:
+      name: taskly-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: 22.14.0
+      - key: TASKLY_HOST
+        value: 0.0.0.0
+      - key: TASKLY_PORT
+        value: 10000
+      - key: TASKLY_DB
+        value: /data/db.json
+      - key: TASKLY_TRUST_PROXY
+        value: "1"
+      - key: TASKLY_SMTP_HOST
+        value: smtp.gmail.com
+      - key: TASKLY_SMTP_PORT
+        value: "587"
+      - key: TASKLY_SMTP_SECURE
+        value: "0"
+      - key: TASKLY_SMTP_STARTTLS
+        value: "1"
+      - key: TASKLY_SMTP_USER
+        sync: false
+      - key: TASKLY_SMTP_PASS
+        sync: false
+      - key: TASKLY_SMTP_FROM
+        sync: false

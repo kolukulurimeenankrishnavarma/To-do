@@ -1,0 +1,42 @@
+# Render Blueprint for the full Taskly app (web + API + SSE).
+# GitHub Pages cannot run this Node backend; use this blueprint on Render.
+#
+# Free plan: the app works, but data/db.json is ephemeral and resets when the
+# instance restarts. For persistence, use render-persistent.yaml instead.
+
+services:
+  - type: web
+    name: taskly
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22.14.0
+      - key: TASKLY_HOST
+        value: 0.0.0.0
+      - key: TASKLY_PORT
+        value: 10000
+      # Generate https:// invite/reset links from the proxy's headers until
+      # TASKLY_PUBLIC_URL is set in the Render dashboard.
+      - key: TASKLY_TRUST_PROXY
+        value: "1"
+      - key: TASKLY_SMTP_HOST
+        value: smtp.gmail.com
+      - key: TASKLY_SMTP_PORT
+        value: "587"
+      - key: TASKLY_SMTP_SECURE
+        value: "0"
+      - key: TASKLY_SMTP_STARTTLS
+        value: "1"
+      # Fill these in when Render asks during blueprint creation, or add them
+      # under Environment afterwards. Never commit the app password to Git.
+      - key: TASKLY_SMTP_USER
+        sync: false
+      - key: TASKLY_SMTP_PASS
+        sync: false
+      - key: TASKLY_SMTP_FROM
+        sync: false
