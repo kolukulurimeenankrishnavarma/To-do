@@ -141,6 +141,11 @@ export type ServerMeta = {
   smtpConfigured: boolean;
 };
 
+export type EmailCheckResponse = {
+  valid: boolean;
+  exists: boolean;
+};
+
 export type AuthInput = {
   email: string;
   password: string;

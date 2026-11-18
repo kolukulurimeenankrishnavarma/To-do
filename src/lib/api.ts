@@ -2,6 +2,7 @@ import type {
   ApiAuthResult,
   AppState,
   AuthInput,
+  EmailCheckResponse,
   PasswordResetRequestResult,
   ServerMeta,
   SessionPayload,
@@ -185,7 +186,7 @@ export async function logout(): Promise<void> {
 }
 
 export async function checkEmailExists(email: string): Promise<boolean> {
-  const response = await request<{ exists: boolean }>(
+  const response = await request<EmailCheckResponse>(
     `/api/check-email?email=${encodeURIComponent(email)}`,
   );
   return response.exists;
