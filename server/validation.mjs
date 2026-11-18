@@ -6,6 +6,7 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { promisify } from "node:util";
+import { fail } from "./http.mjs";
 
 const pbkdf2 = promisify(pbkdf2Callback);
 
@@ -168,4 +169,14 @@ export function createResetToken() {
 
 export function hashSessionToken(token) {
   return createHash("sha256").update(token).digest("hex");
+}
+
+/** Shared 400-error adapters for the validation functions above. */
+export function parsedOrFail(result) {
+  if (!result.ok) fail(400, result.error);
+  return result.value;
+}
+
+export function validateOrFail(error) {
+  if (error) fail(400, error);
 }

@@ -3,7 +3,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnvFile } from "./env.mjs";
-import { HttpError, fail, sendJson } from "./http.mjs";
+import { HttpError, fail, sendJson, readBody } from "./http.mjs";
 import { enforceTaskPermissions, requireHost, requireTeam } from "./permissions.mjs";
 import { JsonStore } from "./db.mjs";
 import { normalizeState, emptyState } from "./state.mjs";
@@ -11,19 +11,34 @@ import { sendInviteEmail, sendPasswordResetEmail, smtpConfigured } from "./smtp.
 import { publicBase as buildPublicBase } from "./urls.mjs";
 import {
   RESET_TOKEN_MAX_AGE,
-  SESSION_MAX_AGE,
   createPasswordRecord,
   createResetToken,
-  createSessionToken,
   hashSessionToken,
   newId,
   normalizeName,
   parseEmail,
+  parsedOrFail,
   parseMobile,
   validateName,
+  validateOrFail,
   validatePassword,
   verifyPassword,
 } from "./validation.mjs";
+import {
+  getUser,
+  getUserByEmail,
+  isMember,
+  memberIds,
+  pendingInvites,
+  requireExistingUser,
+  sessionPayload,
+} from "./views.mjs";
+import {
+  clientIdFrom,
+  createSession,
+  findSessionByToken,
+  requireAuth,
+} from "./sessions.mjs";
 
 // Must run before any TASKLY_* constant below is read.
 loadEnvFile();
@@ -39,7 +54,6 @@ const HOST = process.env.TASKLY_HOST || "127.0.0.1";
 const TEST_MODE = process.env.TASKLY_TEST_MODE === "1";
 const PUBLIC_URL = process.env.TASKLY_PUBLIC_URL ?? "";
 const TRUST_PROXY = process.env.TASKLY_TRUST_PROXY === "1";
-const MAX_BODY = 5 * 1024 * 1024;
 
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
@@ -57,38 +71,6 @@ const MIME_TYPES = {
   ".woff": "font/woff",
   ".woff2": "font/woff2",
 };
-
-async function readBody(req) {
-  const chunks = [];
-  let size = 0;
-
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size > MAX_BODY) fail(413, "Request body is too large.");
-    chunks.push(chunk);
-  }
-
-  if (chunks.length === 0) return {};
-  try {
-    const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    if (typeof parsed !== "object" || parsed === null) {
-      fail(400, "Expected a JSON object.");
-    }
-    return parsed;
-  } catch (error) {
-    if (error instanceof HttpError) throw error;
-    fail(400, "Request body must be valid JSON.");
-  }
-}
-
-function parsedOrFail(result) {
-  if (!result.ok) fail(400, result.error);
-  return result.value;
-}
-
-function validateOrFail(error) {
-  if (error) fail(400, error);
-}
 
 /** Every successful sign-in-like response has the same token/session shape. */
 function sendSession(res, status, token, userId) {
@@ -118,163 +100,12 @@ function commitAndNotify(
   });
 }
 
-function publicUser(user) {
-  return {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    mobile: user.mobile,
-    createdAt: user.createdAt,
-  };
-}
-
-function getUser(db, userId) {
-  return db.users.find((user) => user.id === userId) ?? null;
-}
-
-function requireExistingUser(db, userId, status, message) {
-  const user = getUser(db, userId);
-  if (!user) fail(status, message);
-  return user;
-}
-
-function getUserByEmail(db, emailKey) {
-  return db.users.find((user) => user.emailKey === emailKey) ?? null;
-}
-
-function isMember(team, userId) {
-  return team.members.some((member) => member.userId === userId);
-}
-
-function memberIds(team) {
-  return team.members.map((member) => member.userId);
-}
-
-function pendingInvites(team) {
-  return team.invites
-    .filter((invite) => invite.status === "pending")
-    .sort((a, b) => b.createdAt - a.createdAt);
-}
-
-function teamView(db, team, userId) {
-  const hostUser = getUser(db, team.hostId);
-  const members = team.members
-    .map((member) => getUser(db, member.userId))
-    .filter(Boolean);
-  const isHost = team.hostId === userId;
-
-  return {
-    team,
-    host: hostUser ? publicUser(hostUser) : null,
-    members: members.map(publicUser),
-    isHost,
-    pendingInvites: isHost ? pendingInvites(team) : [],
-  };
-}
-
-function invitesForUser(db, user) {
-  return db.teams
-    .flatMap((team) => {
-      if (isMember(team, user.id)) return [];
-      return pendingInvites(team)
-        .filter((invite) => invite.emailKey === user.emailKey)
-        .map((invite) => {
-          const hostUser = getUser(db, team.hostId);
-          return {
-            team,
-            host: hostUser ? publicUser(hostUser) : null,
-            invite,
-          };
-        });
-    })
-    .sort((a, b) => b.invite.createdAt - a.invite.createdAt);
-}
-
-function sessionPayload(db, user) {
-  const teams = db.teams
-    .filter((team) => isMember(team, user.id))
-    .sort((a, b) => {
-      const aOwned = a.hostId === user.id ? 0 : 1;
-      const bOwned = b.hostId === user.id ? 0 : 1;
-      return (
-        aOwned - bOwned ||
-        a.createdAt - b.createdAt ||
-        a.name.localeCompare(b.name)
-      );
-    })
-    .map((team) => teamView(db, team, user.id));
-
-  const memberTeamIds = new Set(teams.map((view) => view.team.id));
-  const invites = invitesForUser(db, user).filter(
-    ({ team }) => !memberTeamIds.has(team.id),
-  );
-
-  return {
-    user: publicUser(user),
-    state: normalizeState(db.data[user.id] ?? emptyState()),
-    teams,
-    invites,
-    revision: db.revision,
-  };
-}
-
-function getBearer(req) {
-  const header = req.headers.authorization;
-  if (typeof header !== "string" || !header.startsWith("Bearer ")) return null;
-  const token = header.slice(7).trim();
-  return token.length > 0 ? token : null;
-}
-
-/**
- * Shared HTTP/SSE session lookup. A session whose user was deleted is returned
- * with `user: null` so each caller can keep its own 401 message.
- */
-function findSessionByToken(db, token) {
-  const tokenHash = hashSessionToken(token);
-  const session = db.sessions.find((entry) => entry.tokenHash === tokenHash);
-  if (!session) return null;
-  return { user: getUser(db, session.userId), session, tokenHash };
-}
-
-function getAuth(db, req) {
-  const token = getBearer(req);
-  if (!token) return null;
-
-  const found = findSessionByToken(db, token);
-  return found?.user ? found : null;
-}
-
-function requireAuth(db, req) {
-  const auth = getAuth(db, req);
-  if (!auth) fail(401, "Sign in to continue.");
-  return auth;
-}
-
-function clientIdFrom(req) {
-  const value = req.headers["x-taskly-client"];
-  return typeof value === "string" ? value : "";
-}
-
 function publicBase(req) {
   return buildPublicBase(req, {
     configuredUrl: PUBLIC_URL,
     trustProxy: TRUST_PROXY,
     fallbackHost: `127.0.0.1:${PORT}`,
   });
-}
-
-function createSession(db, userId) {
-  const token = createSessionToken();
-  const now = Date.now();
-  db.sessions = db.sessions.filter(
-    (entry) => now - entry.createdAt < SESSION_MAX_AGE,
-  );
-  db.sessions.push({
-    tokenHash: hashSessionToken(token),
-    userId,
-    createdAt: now,
-  });
-  return token;
 }
 
 /* ---------- Realtime connections ---------- */
