@@ -81,6 +81,34 @@ async function readBody(req) {
   }
 }
 
+/** Every successful sign-in-like response has the same token/session shape. */
+function sendSession(res, status, token, userId) {
+  const db = store.get();
+  sendJson(res, status, {
+    token,
+    session: sessionPayload(db, getUser(db, userId)),
+  });
+}
+
+/** Notify affected clients once, then answer the mutating request. */
+function commitAndNotify(
+  res,
+  {
+    targets,
+    exceptClientId = "",
+    status = 200,
+    payload = {},
+    withRevision = false,
+  },
+) {
+  broadcast(targets, exceptClientId);
+  sendJson(res, status, {
+    ok: true,
+    ...payload,
+    ...(withRevision ? { revision: store.get().revision } : {}),
+  });
+}
+
 function publicUser(user) {
   return {
     id: user.id,
@@ -188,18 +216,23 @@ function getBearer(req) {
   return token.length > 0 ? token : null;
 }
 
+/**
+ * Shared HTTP/SSE session lookup. A session whose user was deleted is returned
+ * with `user: null` so each caller can keep its own 401 message.
+ */
+function findSessionByToken(db, token) {
+  const tokenHash = hashSessionToken(token);
+  const session = db.sessions.find((entry) => entry.tokenHash === tokenHash);
+  if (!session) return null;
+  return { user: getUser(db, session.userId), session, tokenHash };
+}
+
 function getAuth(db, req) {
   const token = getBearer(req);
   if (!token) return null;
 
-  const tokenHash = hashSessionToken(token);
-  const session = db.sessions.find((entry) => entry.tokenHash === tokenHash);
-  if (!session) return null;
-
-  const user = getUser(db, session.userId);
-  if (!user) return null;
-
-  return { user, session, tokenHash };
+  const found = findSessionByToken(db, token);
+  return found?.user ? found : null;
 }
 
 function requireAuth(db, req) {
@@ -239,6 +272,11 @@ function createSession(db, userId) {
 
 const clients = new Set();
 
+function removeClient(client) {
+  if (client.heartbeat) clearInterval(client.heartbeat);
+  clients.delete(client);
+}
+
 function broadcast(userIds, exceptClientId = "") {
   if (typeof userIds === "string") userIds = [userIds];
   const targets = new Set(userIds.filter(Boolean));
@@ -251,7 +289,7 @@ function broadcast(userIds, exceptClientId = "") {
     try {
       client.res.write(`event: change\ndata: ${data}\n\n`);
     } catch {
-      clients.delete(client);
+      removeClient(client);
     }
   }
 }
@@ -261,21 +299,18 @@ function broadcastAll() {
 }
 
 function openEvents(req, res, url) {
-  const token = url.searchParams.get("token") ?? "";
-  const tokenHash = hashSessionToken(token);
   const db = store.get();
-  const session = db.sessions.find((entry) => entry.tokenHash === tokenHash);
+  const found = findSessionByToken(db, url.searchParams.get("token") ?? "");
 
-  if (!session) {
+  if (!found) {
     sendJson(res, 401, { error: "Sign in to receive live updates." });
     return;
   }
-
-  const user = getUser(db, session.userId);
-  if (!user) {
+  if (!found.user) {
     sendJson(res, 401, { error: "This account is no longer available." });
     return;
   }
+  const user = found.user;
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -300,16 +335,12 @@ function openEvents(req, res, url) {
     try {
       res.write(": ping\n\n");
     } catch {
-      clearInterval(client.heartbeat);
-      clients.delete(client);
+      removeClient(client);
     }
   }, 25_000);
   clients.add(client);
 
-  const cleanup = () => {
-    if (client.heartbeat) clearInterval(client.heartbeat);
-    clients.delete(client);
-  };
+  const cleanup = () => removeClient(client);
   req.on("close", cleanup);
   res.on("close", cleanup);
   res.on("error", cleanup);
@@ -357,12 +388,7 @@ async function handleRegister(req, res) {
     return { token, userId: user.id };
   });
 
-  const db = store.get();
-  const user = getUser(db, result.userId);
-  sendJson(res, 201, {
-    token: result.token,
-    session: sessionPayload(db, user),
-  });
+  sendSession(res, 201, result.token, result.userId);
 }
 
 async function handleLogin(req, res) {
@@ -390,11 +416,7 @@ async function handleLogin(req, res) {
     return createSession(current, user.id);
   });
 
-  const current = store.get();
-  sendJson(res, 200, {
-    token,
-    session: sessionPayload(current, getUser(current, user.id)),
-  });
+  sendSession(res, 200, token, user.id);
 }
 
 async function handleForgotPassword(req, res) {
@@ -486,12 +508,8 @@ async function handleResetPassword(req, res, clientId) {
     return { token: sessionToken, userId: user.id };
   });
 
-  const db = store.get();
   broadcast([result.userId], clientId);
-  sendJson(res, 200, {
-    token: result.token,
-    session: sessionPayload(db, getUser(db, result.userId)),
-  });
+  sendSession(res, 200, result.token, result.userId);
 }
 
 async function handleCreateTeam(req, res, auth, clientId) {
@@ -520,8 +538,12 @@ async function handleCreateTeam(req, res, auth, clientId) {
     return created;
   });
 
-  broadcast([auth.user.id], clientId);
-  sendJson(res, 201, { ok: true, teamId: team.id });
+  commitAndNotify(res, {
+    targets: [auth.user.id],
+    exceptClientId: clientId,
+    status: 201,
+    payload: { teamId: team.id },
+  });
 }
 
 async function handleInvite(req, res, auth, teamId, clientId) {
@@ -579,14 +601,16 @@ async function handleInvite(req, res, auth, teamId, clientId) {
     });
   }
 
-  broadcast([auth.user.id, result.inviteeId], clientId);
-  sendJson(res, 200, {
-    ok: true,
-    teamId,
-    invite: result.invite,
-    inviteUrl,
-    emailSent: delivery.sent,
-    emailError: delivery.error,
+  commitAndNotify(res, {
+    targets: [auth.user.id, result.inviteeId],
+    exceptClientId: clientId,
+    payload: {
+      teamId,
+      invite: result.invite,
+      inviteUrl,
+      emailSent: delivery.sent,
+      emailError: delivery.error,
+    },
   });
 }
 
@@ -634,8 +658,11 @@ async function handleInviteResponse(
     return memberIds(team);
   });
 
-  broadcast([...result, auth.user.id], clientId);
-  sendJson(res, 200, { ok: true, teamId });
+  commitAndNotify(res, {
+    targets: [...result, auth.user.id],
+    exceptClientId: clientId,
+    payload: { teamId },
+  });
 }
 
 async function handleCancelInvite(req, res, auth, teamId, inviteId, clientId) {
@@ -653,8 +680,11 @@ async function handleCancelInvite(req, res, auth, teamId, inviteId, clientId) {
     return { members: memberIds(team), inviteeId: invitee ? invitee.id : null };
   });
 
-  broadcast([...result.members, result.inviteeId], clientId);
-  sendJson(res, 200, { ok: true, teamId });
+  commitAndNotify(res, {
+    targets: [...result.members, result.inviteeId],
+    exceptClientId: clientId,
+    payload: { teamId },
+  });
 }
 
 async function handleRemoveMember(req, res, auth, teamId, memberId, clientId) {
@@ -682,8 +712,11 @@ async function handleRemoveMember(req, res, auth, teamId, memberId, clientId) {
     return { members: memberIds(team), removedId: memberId };
   });
 
-  broadcast([...result.members, result.removedId], clientId);
-  sendJson(res, 200, { ok: true, teamId });
+  commitAndNotify(res, {
+    targets: [...result.members, result.removedId],
+    exceptClientId: clientId,
+    payload: { teamId },
+  });
 }
 
 async function handleDeleteTeam(req, res, auth, teamId, clientId) {
@@ -696,8 +729,7 @@ async function handleDeleteTeam(req, res, auth, teamId, clientId) {
     return ids;
   });
 
-  broadcast(members, clientId);
-  sendJson(res, 200, { ok: true });
+  commitAndNotify(res, { targets: members, exceptClientId: clientId });
 }
 
 async function handleApi(req, res, url) {
@@ -787,8 +819,11 @@ async function handleApi(req, res, url) {
       current.data[auth.user.id] = next;
     });
 
-    broadcast([auth.user.id], clientId);
-    sendJson(res, 200, { ok: true, revision: store.get().revision });
+    commitAndNotify(res, {
+      targets: [auth.user.id],
+      exceptClientId: clientId,
+      withRevision: true,
+    });
     return;
   }
 
@@ -825,8 +860,11 @@ async function handleApi(req, res, url) {
       return memberIds(team);
     });
 
-    broadcast(members, clientId);
-    sendJson(res, 200, { ok: true, revision: store.get().revision });
+    commitAndNotify(res, {
+      targets: members,
+      exceptClientId: clientId,
+      withRevision: true,
+    });
     return;
   }
 
@@ -1019,7 +1057,7 @@ server.listen(PORT, HOST, () => {
 
 function shutdown() {
   for (const client of clients) {
-    if (client.heartbeat) clearInterval(client.heartbeat);
+    removeClient(client);
     try {
       client.res.end();
     } catch {
