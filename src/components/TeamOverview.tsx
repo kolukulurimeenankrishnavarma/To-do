@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { fullTimestamp, relativeTime } from "../lib/date";
 import { isOverdue } from "../lib/tasks";
+import { useAsyncAction } from "../lib/useAsyncAction";
 import type {
   CompletedTask,
   PublicUser,
@@ -96,8 +97,10 @@ export function TeamOverview({
   const [manageMessage, setManageMessage] = useState<InviteMessage | null>(
     null,
   );
-  const [busy, setBusy] = useState(false);
-  const [managing, setManaging] = useState(false);
+  const inviteAction = useAsyncAction();
+  const manageAction = useAsyncAction();
+  const busy = inviteAction.busy;
+  const managing = manageAction.busy;
 
   const host = members.find((member) => member.id === hostId) ?? null;
   const unassigned = tasks.filter(
@@ -158,9 +161,8 @@ export function TeamOverview({
     event.preventDefault();
     if (busy) return;
 
-    setBusy(true);
-    const result = await onInvite(inviteEmail);
-    setBusy(false);
+    const result = await inviteAction.run(() => onInvite(inviteEmail));
+    if (!result) return;
 
     if (!result.ok) {
       setInviteMessage({ kind: "error", text: result.error });
@@ -184,9 +186,8 @@ export function TeamOverview({
   async function handleCancel(inviteId: string) {
     if (busy) return;
 
-    setBusy(true);
-    const result = await onCancelInvite(inviteId);
-    setBusy(false);
+    const result = await inviteAction.run(() => onCancelInvite(inviteId));
+    if (!result) return;
 
     if (!result.ok) {
       setInviteMessage({ kind: "error", text: result.error });
@@ -220,10 +221,9 @@ export function TeamOverview({
     );
     if (!confirmed) return;
 
-    setManaging(true);
     setManageMessage(null);
-    const result = await onRemoveMember(member.id);
-    setManaging(false);
+    const result = await manageAction.run(() => onRemoveMember(member.id));
+    if (!result) return;
 
     if (!result.ok) {
       setManageMessage({ kind: "error", text: result.error });
@@ -244,10 +244,9 @@ export function TeamOverview({
     );
     if (!confirmed) return;
 
-    setManaging(true);
     setManageMessage(null);
-    const result = await onDeleteTeam();
-    setManaging(false);
+    const result = await manageAction.run(() => onDeleteTeam());
+    if (!result) return;
 
     if (!result.ok) {
       setManageMessage({ kind: "error", text: result.error });
