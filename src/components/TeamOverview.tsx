@@ -10,6 +10,7 @@ import type {
   TeamInvite,
   TeamInviteResult,
 } from "../types";
+import { StatusMessage } from "./StatusMessage";
 import { UserIcon } from "./Icons";
 
 type TeamOverviewProps = {
@@ -323,18 +324,13 @@ export function TeamOverview({
           </form>
 
           {inviteMessage ? (
-            <div
-              className={`team-invite-message team-invite-message--${inviteMessage.kind}`}
+            <StatusMessage
               id="team-invite-message"
-              role="status"
-            >
-              <p>{inviteMessage.text}</p>
-              {inviteMessage.link ? (
-                <p className="team-invite-message__link">
-                  <a href={inviteMessage.link}>{inviteMessage.link}</a>
-                </p>
-              ) : null}
-            </div>
+              className="team-invite-message"
+              kind={inviteMessage.kind}
+              text={inviteMessage.text}
+              link={inviteMessage.link}
+            />
           ) : null}
 
           {pendingInvites.length > 0 ? (
@@ -491,13 +487,13 @@ export function TeamOverview({
       </div>
 
       {manageMessage ? (
-        <div
-          className={`team-invite-message team-invite-message--${manageMessage.kind} team-manage-message`}
+        <StatusMessage
           id="team-manage-message"
-          role="status"
-        >
-          <p>{manageMessage.text}</p>
-        </div>
+          className="team-invite-message"
+          kind={manageMessage.kind}
+          text={manageMessage.text}
+          extraClassName="team-manage-message"
+        />
       ) : null}
 
       {isHost ? (
