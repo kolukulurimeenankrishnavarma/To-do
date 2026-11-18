@@ -1,6 +1,26 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import {
+  expect,
+  test as base,
+  type Locator,
+  type Page,
+} from "@playwright/test";
+
+type PageErrorsFixture = { pageErrors: string[] };
+
+/** Each test gets its own error list, including errors from extra tabs. */
+const test = base.extend<PageErrorsFixture>({
+  pageErrors: [
+    async ({ page }, use) => {
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await use(errors);
+      expect(errors).toEqual([]);
+    },
+    { auto: true },
+  ],
+});
 
 const DB_FILE = path.resolve(process.cwd(), "test-results", "e2e-db.json");
 
@@ -82,12 +102,7 @@ async function waitForDb(check: (db: Db) => boolean): Promise<Db> {
   throw new Error("Timed out waiting for the Taskly test database to update.");
 }
 
-let pageErrors: string[] = [];
-
 test.beforeEach(async ({ page }) => {
-  pageErrors = [];
-  page.on("pageerror", (error) => pageErrors.push(error.message));
-
   const reset = await page.request.post("/api/test/reset");
   expect(reset.ok()).toBe(true);
 
@@ -98,10 +113,6 @@ test.beforeEach(async ({ page }) => {
   });
   await page.reload();
   await expect(page.locator("#auth-form")).toBeVisible();
-});
-
-test.afterEach(() => {
-  expect(pageErrors).toEqual([]);
 });
 
 const DEFAULT_NAME = "E2E User";
@@ -175,6 +186,18 @@ async function storedUser(page: Page, email = DEFAULT_EMAIL) {
   return (
     db.users.find((entry) => entry.emailKey === email.toLowerCase()) ?? null
   );
+}
+
+async function putTeamState(
+  page: Page,
+  teamId: string,
+  token: string,
+  state: DbTeam["state"],
+) {
+  return page.request.put(`/api/teams/${teamId}/state`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { state },
+  });
 }
 
 async function storedTeams(page: Page): Promise<DbTeam[]> {
@@ -1330,129 +1353,85 @@ test("the server rejects completion, progress, rename, delete, and restore edits
   if (!archived) return;
 
   const token = await sessionToken(page);
-  const endpoint = `/api/teams/${before.id}/state`;
-  const headers = { Authorization: `Bearer ${token}` };
 
   // Dan cannot move Cleo's task into history...
-  const completion = await page.request.put(endpoint, {
-    headers,
-    data: {
-      state: {
-        tasks: before.state.tasks.filter((entry) => entry.id !== task.id),
-        history: [
-          { ...task, progress: 100, completedAt: Date.now() },
-          ...before.state.history,
-        ],
-      },
-    },
+  const completion = await putTeamState(page, before.id, token, {
+    tasks: before.state.tasks.filter((entry) => entry.id !== task.id),
+    history: [
+      { ...task, progress: 100, completedAt: Date.now() },
+      ...before.state.history,
+    ],
   });
   expect(completion.status()).toBe(403);
 
   // ...or change its progress.
-  const progress = await page.request.put(endpoint, {
-    headers,
-    data: {
-      state: {
-        tasks: before.state.tasks.map((entry) =>
-          entry.id === task.id ? { ...entry, progress: 50 } : entry,
-        ),
-        history: before.state.history,
-      },
-    },
+  const progress = await putTeamState(page, before.id, token, {
+    tasks: before.state.tasks.map((entry) =>
+      entry.id === task.id ? { ...entry, progress: 50 } : entry,
+    ),
+    history: before.state.history,
   });
   expect(progress.status()).toBe(403);
 
   // ...rename or delete it...
-  const rename = await page.request.put(endpoint, {
-    headers,
-    data: {
-      state: {
-        tasks: before.state.tasks.map((entry) =>
-          entry.id === task.id ? { ...entry, title: "Hijacked report" } : entry,
-        ),
-        history: before.state.history,
-      },
-    },
+  const rename = await putTeamState(page, before.id, token, {
+    tasks: before.state.tasks.map((entry) =>
+      entry.id === task.id ? { ...entry, title: "Hijacked report" } : entry,
+    ),
+    history: before.state.history,
   });
   expect(rename.status()).toBe(403);
 
-  const removal = await page.request.put(endpoint, {
-    headers,
-    data: {
-      state: {
-        tasks: before.state.tasks.filter((entry) => entry.id !== task.id),
-        history: before.state.history,
-      },
-    },
+  const removal = await putTeamState(page, before.id, token, {
+    tasks: before.state.tasks.filter((entry) => entry.id !== task.id),
+    history: before.state.history,
   });
   expect(removal.status()).toBe(403);
 
   // ...or rename, restore, and delete finished work that is not his.
-  const historyRename = await page.request.put(endpoint, {
-    headers,
-    data: {
-      state: {
-        tasks: before.state.tasks,
-        history: before.state.history.map((entry) =>
-          entry.id === archived.id
-            ? { ...entry, title: "Hijacked history" }
-            : entry,
-        ),
-      },
-    },
+  const historyRename = await putTeamState(page, before.id, token, {
+    tasks: before.state.tasks,
+    history: before.state.history.map((entry) =>
+      entry.id === archived.id ? { ...entry, title: "Hijacked history" } : entry,
+    ),
   });
   expect(historyRename.status()).toBe(403);
 
-  const restore = await page.request.put(endpoint, {
-    headers,
-    data: {
-      state: {
-        tasks: [...before.state.tasks, { ...archived }],
-        history: before.state.history.filter(
-          (entry) => entry.id !== archived.id,
-        ),
-      },
-    },
+  const restore = await putTeamState(page, before.id, token, {
+    tasks: [...before.state.tasks, { ...archived }],
+    history: before.state.history.filter(
+      (entry) => entry.id !== archived.id,
+    ),
   });
   expect(restore.status()).toBe(403);
 
-  const historyRemoval = await page.request.put(endpoint, {
-    headers,
-    data: {
-      state: {
-        tasks: before.state.tasks,
-        history: before.state.history.filter(
-          (entry) => entry.id !== archived.id,
-        ),
-      },
-    },
+  const historyRemoval = await putTeamState(page, before.id, token, {
+    tasks: before.state.tasks,
+    history: before.state.history.filter(
+      (entry) => entry.id !== archived.id,
+    ),
   });
   expect(historyRemoval.status()).toBe(403);
 
   // Comments keep the progress value unchanged and are allowed.
-  const comment = await page.request.put(endpoint, {
-    headers,
-    data: {
-      state: {
-        tasks: before.state.tasks.map((entry) =>
-          entry.id === task.id
-            ? {
-                ...entry,
-                progressLog: [
-                  ...entry.progressLog,
-                  {
-                    value: entry.progress,
-                    at: Date.now(),
-                    note: "Looks good from my side",
-                    by: users.find((user) => user.name === "Dan")?.id ?? null,
-                  },
-                ],
-              }
-            : entry,
-        ),
-        history: before.state.history,
-      },
-    },
+  const comment = await putTeamState(page, before.id, token, {
+    tasks: before.state.tasks.map((entry) =>
+      entry.id === task.id
+        ? {
+            ...entry,
+            progressLog: [
+              ...entry.progressLog,
+              {
+                value: entry.progress,
+                at: Date.now(),
+                note: "Looks good from my side",
+                by: users.find((user) => user.name === "Dan")?.id ?? null,
+              },
+            ],
+          }
+        : entry,
+    ),
+    history: before.state.history,
   });
   expect(comment.ok()).toBe(true);
 
@@ -1628,6 +1607,7 @@ test("invite links open the acceptance flow for the matching account", async ({
 test("two tabs exchange an invitation and share updates live", async ({
   context,
   page,
+  pageErrors,
 }) => {
   await signUp(page, {
     name: "Varma",
@@ -1840,12 +1820,11 @@ test("hosts can remove teammates one by one and delete the team", async ({
 
   // Replay the pre-removal snapshot, as a delayed tab save would. The server
   // must not let a former member be restored as the assignee.
-  const staleSave = await page.request.put(
-    `/api/teams/${hostTeam.id}/state`,
-    {
-      headers: { Authorization: `Bearer ${hostToken}` },
-      data: { state: hostTeam.state },
-    },
+  const staleSave = await putTeamState(
+    page,
+    hostTeam.id,
+    hostToken,
+    hostTeam.state,
   );
   expect(staleSave.ok()).toBe(true);
   const afterStaleSave = await storedTeam(page);
