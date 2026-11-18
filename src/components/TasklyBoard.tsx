@@ -12,6 +12,7 @@ import { savePrivateState, saveTeamState } from "../lib/api";
 import { formatToday } from "../lib/date";
 import { taskId } from "../lib/id";
 import { appendProgressEntry, clampProgress } from "../lib/progress";
+import { canManage } from "../lib/taskPermissions";
 import { emptyState } from "../lib/storage";
 import { readStoredSort, rememberSort } from "../lib/sortPreference";
 import { readTabTeamId, rememberTeamId } from "../lib/tabState";
@@ -431,7 +432,7 @@ export function TasklyBoard({
 
   function renameTask(id: string, title: string) {
     const task = state.tasks.find((item) => item.id === id);
-    if (workspace === "team" && (!task || task.assigneeId !== user.id)) return;
+    if (!canManage(workspace, task, user.id)) return;
 
     updateState((prev) => ({
       ...prev,
@@ -443,12 +444,7 @@ export function TasklyBoard({
 
   function renameHistoryItem(id: string, title: string) {
     const item = state.history.find((entry) => entry.id === id);
-    if (
-      workspace === "team" &&
-      (!item || (item.assigneeId !== null && item.assigneeId !== user.id))
-    ) {
-      return;
-    }
+    if (!canManage(workspace, item, user.id, { allowUnassigned: true })) return;
 
     updateState((prev) => ({
       ...prev,
@@ -472,11 +468,7 @@ export function TasklyBoard({
       ...prev,
       tasks: prev.tasks.map((task) => {
         if (task.id !== id) return task;
-        if (
-          workspace === "team" &&
-          task.assigneeId !== null &&
-          task.assigneeId !== user.id
-        ) {
+        if (!canManage(workspace, task, user.id, { allowUnassigned: true })) {
           return task;
         }
 
@@ -498,10 +490,9 @@ export function TasklyBoard({
 
         // Members with progress access must move past 0% before logging an
         // update. Comment-only entries at 0% remain available to teammates.
-        const canEditProgress =
-          workspace !== "team" ||
-          task.assigneeId === null ||
-          task.assigneeId === user.id;
+        const canEditProgress = canManage(workspace, task, user.id, {
+          allowUnassigned: true,
+        });
         if (canEditProgress && task.progress === 0) return task;
 
         return appendProgressEntry(task, task.progress, Date.now(), note, user.id);
@@ -513,14 +504,7 @@ export function TasklyBoard({
     if (pendingCompletions.current.has(id)) return;
 
     const task = state.tasks.find((item) => item.id === id);
-    if (!task) return;
-    if (
-      workspace === "team" &&
-      task.assigneeId !== null &&
-      task.assigneeId !== user.id
-    ) {
-      return;
-    }
+    if (!canManage(workspace, task, user.id, { allowUnassigned: true })) return;
 
     pendingCompletions.current.add(id);
     setLeavingIds((prev) => [...prev, id]);
@@ -531,11 +515,7 @@ export function TasklyBoard({
       updateState((prev) => {
         const current = prev.tasks.find((item) => item.id === id);
         if (!current) return prev;
-        if (
-          workspace === "team" &&
-          current.assigneeId !== null &&
-          current.assigneeId !== user.id
-        ) {
+        if (!canManage(workspace, current, user.id, { allowUnassigned: true })) {
           return prev;
         }
 
@@ -561,7 +541,7 @@ export function TasklyBoard({
 
   function deleteTask(id: string) {
     const task = state.tasks.find((item) => item.id === id);
-    if (workspace === "team" && (!task || task.assigneeId !== user.id)) return;
+    if (!canManage(workspace, task, user.id)) return;
 
     updateState((prev) => ({
       ...prev,
@@ -571,11 +551,7 @@ export function TasklyBoard({
 
   function restoreTask(id: string) {
     const completed = state.history.find((entry) => entry.id === id);
-    if (
-      workspace === "team" &&
-      (!completed ||
-        (completed.assigneeId !== null && completed.assigneeId !== user.id))
-    ) {
+    if (!canManage(workspace, completed, user.id, { allowUnassigned: true })) {
       return;
     }
 
@@ -605,12 +581,7 @@ export function TasklyBoard({
 
   function deleteHistoryItem(id: string) {
     const item = state.history.find((entry) => entry.id === id);
-    if (
-      workspace === "team" &&
-      (!item || (item.assigneeId !== null && item.assigneeId !== user.id))
-    ) {
-      return;
-    }
+    if (!canManage(workspace, item, user.id, { allowUnassigned: true })) return;
 
     updateState((prev) => ({
       ...prev,
