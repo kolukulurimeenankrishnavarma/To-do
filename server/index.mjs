@@ -81,6 +81,15 @@ async function readBody(req) {
   }
 }
 
+function parsedOrFail(result) {
+  if (!result.ok) fail(400, result.error);
+  return result.value;
+}
+
+function validateOrFail(error) {
+  if (error) fail(400, error);
+}
+
 /** Every successful sign-in-like response has the same token/session shape. */
 function sendSession(res, status, token, userId) {
   const db = store.get();
@@ -351,20 +360,13 @@ function openEvents(req, res, url) {
 async function handleRegister(req, res) {
   const body = await readBody(req);
 
-  const emailResult = parseEmail(body.email);
-  if (!emailResult.ok) fail(400, emailResult.error);
-
-  const passwordError = validatePassword(body.password);
-  if (passwordError) fail(400, passwordError);
-
-  const nameError = validateName(body.name);
-  if (nameError) fail(400, nameError);
-
-  const mobileResult = parseMobile(body.mobile, body.countryDial);
-  if (!mobileResult.ok) fail(400, mobileResult.error);
+  const emailInfo = parsedOrFail(parseEmail(body.email));
+  validateOrFail(validatePassword(body.password));
+  validateOrFail(validateName(body.name));
+  const mobileInfo = parsedOrFail(parseMobile(body.mobile, body.countryDial));
 
   const record = await createPasswordRecord(body.password);
-  const { email, key } = emailResult.value;
+  const { email, key } = emailInfo;
 
   const result = await store.mutate((db) => {
     if (getUserByEmail(db, key)) {
@@ -376,8 +378,8 @@ async function handleRegister(req, res) {
       name: normalizeName(body.name),
       email,
       emailKey: key,
-      mobile: mobileResult.value.mobile,
-      mobileKey: mobileResult.value.key,
+      mobile: mobileInfo.mobile,
+      mobileKey: mobileInfo.key,
       ...record,
       createdAt: Date.now(),
     };
@@ -394,16 +396,13 @@ async function handleRegister(req, res) {
 async function handleLogin(req, res) {
   const body = await readBody(req);
 
-  const emailResult = parseEmail(body.email);
-  if (!emailResult.ok) fail(400, emailResult.error);
-
-  const passwordError = validatePassword(body.password);
-  if (passwordError) fail(400, passwordError);
+  const emailInfo = parsedOrFail(parseEmail(body.email));
+  validateOrFail(validatePassword(body.password));
 
   const db = store.get();
-  const user = getUserByEmail(db, emailResult.value.key);
+  const user = getUserByEmail(db, emailInfo.key);
   if (!user) {
-    fail(404, `No account found for “${emailResult.value.email}”.`);
+    fail(404, `No account found for “${emailInfo.email}”.`);
   }
 
   const valid = await verifyPassword(body.password, user);
@@ -422,12 +421,11 @@ async function handleLogin(req, res) {
 async function handleForgotPassword(req, res) {
   const body = await readBody(req);
 
-  const parsed = parseEmail(body.email);
-  if (!parsed.ok) fail(400, parsed.error);
+  const parsed = parsedOrFail(parseEmail(body.email));
 
   const now = Date.now();
   const result = await store.mutate((db) => {
-    const user = getUserByEmail(db, parsed.value.key);
+    const user = getUserByEmail(db, parsed.key);
     if (!user) return null;
 
     const token = createResetToken();
@@ -456,18 +454,16 @@ async function handleForgotPassword(req, res) {
   const resetUrl = `${publicBase(req)}/?reset=${encodeURIComponent(
     result.token,
   )}`;
-  let delivery = { sent: false, error: "SMTP is not configured." };
-  if (smtpConfigured()) {
-    delivery = await sendPasswordResetEmail({
-      to: result.user.email,
-      name: result.user.name,
-      link: resetUrl,
-    });
-  }
+  const configured = smtpConfigured();
+  const delivery = await sendPasswordResetEmail({
+    to: result.user.email,
+    name: result.user.name,
+    link: resetUrl,
+  });
 
   sendJson(res, 200, {
     ok: true,
-    resetUrl: smtpConfigured() ? undefined : resetUrl,
+    resetUrl: configured ? undefined : resetUrl,
     emailSent: delivery.sent,
     emailError: delivery.error,
   });
@@ -478,8 +474,7 @@ async function handleResetPassword(req, res, clientId) {
   const token = String(body.token ?? "");
   if (!token) fail(400, "This reset link is invalid or has expired.");
 
-  const passwordError = validatePassword(body.password);
-  if (passwordError) fail(400, passwordError);
+  validateOrFail(validatePassword(body.password));
 
   const tokenHash = hashSessionToken(token);
   const record = await createPasswordRecord(body.password);
@@ -549,9 +544,7 @@ async function handleCreateTeam(req, res, auth, clientId) {
 async function handleInvite(req, res, auth, teamId, clientId) {
   const body = await readBody(req);
 
-  const parsed = parseEmail(body.email);
-  if (!parsed.ok) fail(400, parsed.error);
-  const { email, key } = parsed.value;
+  const { email, key } = parsedOrFail(parseEmail(body.email));
 
   const result = await store.mutate((db) => {
     const team = requireTeam(db, teamId);
@@ -591,15 +584,12 @@ async function handleInvite(req, res, auth, teamId, clientId) {
   const base = publicBase(req);
   const inviteUrl = `${base}/?invite=${encodeURIComponent(result.invite.id)}`;
 
-  let delivery = { sent: false, error: "SMTP is not configured." };
-  if (smtpConfigured()) {
-    delivery = await sendInviteEmail({
-      to: email,
-      teamName: result.teamName,
-      inviterName: auth.user.name,
-      link: inviteUrl,
-    });
-  }
+  const delivery = await sendInviteEmail({
+    to: email,
+    teamName: result.teamName,
+    inviterName: auth.user.name,
+    link: inviteUrl,
+  });
 
   commitAndNotify(res, {
     targets: [auth.user.id, result.inviteeId],
