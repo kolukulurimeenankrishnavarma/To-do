@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { fullTimestamp, relativeTime } from "../lib/date";
 import { isOverdue } from "../lib/tasks";
+import { useAsyncAction } from "../lib/useAsyncAction";
 import type {
   CompletedTask,
   PublicUser,
@@ -9,6 +10,7 @@ import type {
   TeamInvite,
   TeamInviteResult,
 } from "../types";
+import { StatusMessage } from "./StatusMessage";
 import { UserIcon } from "./Icons";
 
 type TeamOverviewProps = {
@@ -96,8 +98,10 @@ export function TeamOverview({
   const [manageMessage, setManageMessage] = useState<InviteMessage | null>(
     null,
   );
-  const [busy, setBusy] = useState(false);
-  const [managing, setManaging] = useState(false);
+  const inviteAction = useAsyncAction();
+  const manageAction = useAsyncAction();
+  const busy = inviteAction.busy;
+  const managing = manageAction.busy;
 
   const host = members.find((member) => member.id === hostId) ?? null;
   const unassigned = tasks.filter(
@@ -158,9 +162,8 @@ export function TeamOverview({
     event.preventDefault();
     if (busy) return;
 
-    setBusy(true);
-    const result = await onInvite(inviteEmail);
-    setBusy(false);
+    const result = await inviteAction.run(() => onInvite(inviteEmail));
+    if (!result) return;
 
     if (!result.ok) {
       setInviteMessage({ kind: "error", text: result.error });
@@ -184,9 +187,8 @@ export function TeamOverview({
   async function handleCancel(inviteId: string) {
     if (busy) return;
 
-    setBusy(true);
-    const result = await onCancelInvite(inviteId);
-    setBusy(false);
+    const result = await inviteAction.run(() => onCancelInvite(inviteId));
+    if (!result) return;
 
     if (!result.ok) {
       setInviteMessage({ kind: "error", text: result.error });
@@ -220,10 +222,9 @@ export function TeamOverview({
     );
     if (!confirmed) return;
 
-    setManaging(true);
     setManageMessage(null);
-    const result = await onRemoveMember(member.id);
-    setManaging(false);
+    const result = await manageAction.run(() => onRemoveMember(member.id));
+    if (!result) return;
 
     if (!result.ok) {
       setManageMessage({ kind: "error", text: result.error });
@@ -244,10 +245,9 @@ export function TeamOverview({
     );
     if (!confirmed) return;
 
-    setManaging(true);
     setManageMessage(null);
-    const result = await onDeleteTeam();
-    setManaging(false);
+    const result = await manageAction.run(() => onDeleteTeam());
+    if (!result) return;
 
     if (!result.ok) {
       setManageMessage({ kind: "error", text: result.error });
@@ -324,18 +324,13 @@ export function TeamOverview({
           </form>
 
           {inviteMessage ? (
-            <div
-              className={`team-invite-message team-invite-message--${inviteMessage.kind}`}
+            <StatusMessage
               id="team-invite-message"
-              role="status"
-            >
-              <p>{inviteMessage.text}</p>
-              {inviteMessage.link ? (
-                <p className="team-invite-message__link">
-                  <a href={inviteMessage.link}>{inviteMessage.link}</a>
-                </p>
-              ) : null}
-            </div>
+              className="team-invite-message"
+              kind={inviteMessage.kind}
+              text={inviteMessage.text}
+              link={inviteMessage.link}
+            />
           ) : null}
 
           {pendingInvites.length > 0 ? (
@@ -492,13 +487,13 @@ export function TeamOverview({
       </div>
 
       {manageMessage ? (
-        <div
-          className={`team-invite-message team-invite-message--${manageMessage.kind} team-manage-message`}
+        <StatusMessage
           id="team-manage-message"
-          role="status"
-        >
-          <p>{manageMessage.text}</p>
-        </div>
+          className="team-invite-message"
+          kind={manageMessage.kind}
+          text={manageMessage.text}
+          extraClassName="team-manage-message"
+        />
       ) : null}
 
       {isHost ? (

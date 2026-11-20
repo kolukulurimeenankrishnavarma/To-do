@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { MAX_NOTE_LENGTH, PROGRESS_STEP } from "../lib/constants";
+import { useTransientFlag } from "../lib/useTransientFlag";
 import type { Task } from "../types";
 
 type ProgressControlsProps = {
@@ -18,17 +19,10 @@ export function ProgressControls({
   onLog,
 }: ProgressControlsProps) {
   const [note, setNote] = useState("");
-  const [logged, setLogged] = useState(false);
-  const feedbackTimer = useRef<number | undefined>(undefined);
+  const [logged, triggerLogged] = useTransientFlag(1200, {
+    restartOnFrame: false,
+  });
   const needsProgress = canEditProgress && task.progress === 0;
-
-  useEffect(() => {
-    return () => {
-      if (feedbackTimer.current !== undefined) {
-        window.clearTimeout(feedbackTimer.current);
-      }
-    };
-  }, []);
 
   function logProgress() {
     // A progress update at 0% records no change and only clutters the log.
@@ -37,12 +31,7 @@ export function ProgressControls({
 
     onLog(note);
     setNote("");
-    setLogged(true);
-
-    if (feedbackTimer.current !== undefined) {
-      window.clearTimeout(feedbackTimer.current);
-    }
-    feedbackTimer.current = window.setTimeout(() => setLogged(false), 1200);
+    triggerLogged();
   }
 
   const sliderStyle = {

@@ -1,4 +1,5 @@
 import { SORT_KEY } from "./constants";
+import { safeLocalStorage } from "./storage";
 import type { TaskSort } from "../types";
 
 const VALID_SORTS: TaskSort[] = [
@@ -9,17 +10,8 @@ const VALID_SORTS: TaskSort[] = [
   "title",
 ];
 
-function getStorage(): Storage | null {
-  try {
-    if (typeof window === "undefined") return null;
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
 export function readStoredSort(): TaskSort | null {
-  const storage = getStorage();
+  const storage = safeLocalStorage();
   if (!storage) return null;
 
   try {
@@ -31,7 +23,7 @@ export function readStoredSort(): TaskSort | null {
 }
 
 export function rememberSort(sort: TaskSort): void {
-  const storage = getStorage();
+  const storage = safeLocalStorage();
   if (!storage) return;
 
   try {

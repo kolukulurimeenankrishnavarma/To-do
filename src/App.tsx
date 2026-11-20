@@ -52,6 +52,24 @@ function resetTokenFromUrl(): string | null {
   }
 }
 
+type TeamResult = TeamActionResult | TeamInviteResult;
+
+/**
+ * Every team action needs a session and refreshes the payload after success.
+ * Keeping that policy here prevents one handler from forgetting either step.
+ */
+async function runTeamAction<T extends TeamResult>(
+  signedIn: boolean,
+  signInError: string,
+  call: () => Promise<T>,
+  refresh: () => Promise<void>,
+): Promise<T> {
+  if (!signedIn) return { ok: false, error: signInError } as T;
+  const result = await call();
+  if (result.ok) await refresh();
+  return result;
+}
+
 export default function App() {
   const [meta, setMeta] = useState<ServerMeta | null>(null);
   const [bootError, setBootError] = useState("");
@@ -232,70 +250,79 @@ export default function App() {
     return result;
   }
 
-  async function handleCreateTeam(): Promise<TeamActionResult> {
-    if (!session) return { ok: false, error: "Sign in to create a team." };
-    const result = await createTeam();
-    if (result.ok) await refreshSession();
-    return result;
+  function handleCreateTeam(): Promise<TeamActionResult> {
+    return runTeamAction(
+      Boolean(session),
+      "Sign in to create a team.",
+      createTeam,
+      refreshSession,
+    );
   }
 
-  async function handleInvite(
-    teamId: string,
-    email: string,
-  ): Promise<TeamInviteResult> {
-    if (!session) {
-      return { ok: false, error: "Sign in to invite teammates." };
-    }
-    const result = await inviteTeamMember(teamId, email);
-    if (result.ok) await refreshSession();
-    return result;
+  function handleInvite(teamId: string, email: string): Promise<TeamInviteResult> {
+    return runTeamAction(
+      Boolean(session),
+      "Sign in to invite teammates.",
+      () => inviteTeamMember(teamId, email),
+      refreshSession,
+    );
   }
 
-  async function handleAcceptInvite(
-    teamId: string,
-    inviteId: string,
-  ): Promise<TeamActionResult> {
-    if (!session) return { ok: false, error: "Sign in to join the team." };
-    const result = await acceptTeamInvite(teamId, inviteId);
-    if (result.ok) await refreshSession();
-    return result;
-  }
-
-  async function handleDeclineInvite(
+  function handleAcceptInvite(
     teamId: string,
     inviteId: string,
   ): Promise<TeamActionResult> {
-    if (!session) return { ok: false, error: "Sign in to respond." };
-    const result = await declineTeamInvite(teamId, inviteId);
-    if (result.ok) await refreshSession();
-    return result;
+    return runTeamAction(
+      Boolean(session),
+      "Sign in to join the team.",
+      () => acceptTeamInvite(teamId, inviteId),
+      refreshSession,
+    );
   }
 
-  async function handleCancelInvite(
+  function handleDeclineInvite(
     teamId: string,
     inviteId: string,
   ): Promise<TeamActionResult> {
-    if (!session) return { ok: false, error: "Sign in to manage invites." };
-    const result = await cancelTeamInvite(teamId, inviteId);
-    if (result.ok) await refreshSession();
-    return result;
+    return runTeamAction(
+      Boolean(session),
+      "Sign in to respond.",
+      () => declineTeamInvite(teamId, inviteId),
+      refreshSession,
+    );
   }
 
-  async function handleRemoveTeamMember(
+  function handleCancelInvite(
+    teamId: string,
+    inviteId: string,
+  ): Promise<TeamActionResult> {
+    return runTeamAction(
+      Boolean(session),
+      "Sign in to manage invites.",
+      () => cancelTeamInvite(teamId, inviteId),
+      refreshSession,
+    );
+  }
+
+  function handleRemoveTeamMember(
     teamId: string,
     memberId: string,
   ): Promise<TeamActionResult> {
-    if (!session) return { ok: false, error: "Sign in to manage the team." };
-    const result = await removeTeamMember(teamId, memberId);
-    if (result.ok) await refreshSession();
-    return result;
+    return runTeamAction(
+      Boolean(session),
+      "Sign in to manage the team.",
+      () => removeTeamMember(teamId, memberId),
+      refreshSession,
+    );
   }
 
-  async function handleDeleteTeam(teamId: string): Promise<TeamActionResult> {
-    if (!session) return { ok: false, error: "Sign in to manage the team." };
-    const result = await deleteTeam(teamId);
-    if (result.ok) await refreshSession();
-    return result;
+  function handleDeleteTeam(teamId: string): Promise<TeamActionResult> {
+    return runTeamAction(
+      Boolean(session),
+      "Sign in to manage the team.",
+      () => deleteTeam(teamId),
+      refreshSession,
+    );
   }
 
   if (!session && !meta) {

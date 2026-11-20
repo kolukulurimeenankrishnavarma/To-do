@@ -1,4 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { AuthField } from "./AuthField";
+import { StatusMessage } from "./StatusMessage";
 import { CheckIcon } from "./Icons";
 import { CountryPicker } from "./CountryPicker";
 import { ThemeToggle } from "./ThemeToggle";
@@ -307,78 +309,53 @@ export function AuthScreen({
             noValidate
           >
             {isSignup ? (
-              <div className="auth__field">
-                <label htmlFor="auth-name">Full name</label>
-                <input
-                  id="auth-name"
-                  type="text"
-                  autoComplete="name"
-                  autoFocus
-                  aria-invalid={
-                    showWarning(name) && nameError ? true : undefined
-                  }
-                  aria-describedby={
-                    showWarning(name) && nameError
-                      ? "auth-name-warning"
-                      : undefined
-                  }
-                  value={name}
-                  onChange={(event) => {
-                    setName(event.target.value);
-                    clearAppError();
-                  }}
-                />
-                {showWarning(name) && nameError ? (
-                  <span
-                    className="auth__warning"
-                    id="auth-name-warning"
-                    role="status"
-                  >
-                    {nameError}
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
-
-            <div className="auth__field">
-              <label htmlFor="auth-email">Email address</label>
-              <input
-                id="auth-email"
-                type="email"
-                inputMode="email"
-                autoComplete="email"
-                autoFocus={!isSignup}
-                spellCheck={false}
-                placeholder="you@example.com"
-                aria-invalid={
-                  showWarning(email) && emailWarning ? true : undefined
-                }
-                aria-describedby={
-                  showWarning(email) && emailWarning
-                    ? "auth-email-warning"
-                    : undefined
-                }
-                value={email}
+              <AuthField
+                id="auth-name"
+                label="Full name"
+                type="text"
+                autoComplete="name"
+                autoFocus
+                warning={showWarning(name) ? nameError : null}
+                value={name}
                 onChange={(event) => {
-                  setEmail(event.target.value);
+                  setName(event.target.value);
                   clearAppError();
                 }}
               />
-              {showWarning(email) && emailWarning ? (
-                <span
-                  className="auth__warning"
-                  id="auth-email-warning"
-                  role="status"
-                >
-                  {emailWarning}
-                </span>
-              ) : null}
-            </div>
+            ) : null}
+
+            <AuthField
+              id="auth-email"
+              label="Email address"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              autoFocus={!isSignup}
+              spellCheck={false}
+              placeholder="you@example.com"
+              warning={showWarning(email) ? emailWarning : null}
+              value={email}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                clearAppError();
+              }}
+            />
 
             {isSignup ? (
-              <div className="auth__field">
-                <label htmlFor="auth-mobile">Mobile number</label>
-                <div className="auth__mobile">
+              <AuthField
+                id="auth-mobile"
+                label="Mobile number"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder="98765 43210"
+                warning={showWarning(mobile) ? mobileError : null}
+                value={mobile}
+                onChange={(event) => {
+                  setMobile(event.target.value);
+                  clearAppError();
+                }}
+                prefix={
                   <CountryPicker
                     value={country}
                     onChange={(next) => {
@@ -389,69 +366,22 @@ export function AuthScreen({
                     searchId="auth-country-search"
                     listId="auth-country-list"
                   />
-                  <input
-                    id="auth-mobile"
-                    type="tel"
-                    inputMode="tel"
-                    autoComplete="tel"
-                    placeholder="98765 43210"
-                    aria-invalid={
-                      showWarning(mobile) && mobileError ? true : undefined
-                    }
-                    aria-describedby={
-                      showWarning(mobile) && mobileError
-                        ? "auth-mobile-warning"
-                        : undefined
-                    }
-                    value={mobile}
-                    onChange={(event) => {
-                      setMobile(event.target.value);
-                      clearAppError();
-                    }}
-                  />
-                </div>
-                {showWarning(mobile) && mobileError ? (
-                  <span
-                    className="auth__warning"
-                    id="auth-mobile-warning"
-                    role="status"
-                  >
-                    {mobileError}
-                  </span>
-                ) : null}
-              </div>
+                }
+              />
             ) : null}
 
-            <div className="auth__field">
-              <label htmlFor="auth-password">Password</label>
-              <input
-                id="auth-password"
-                type="password"
-                autoComplete={isSignup ? "new-password" : "current-password"}
-                aria-invalid={
-                  showWarning(password) && passwordError ? true : undefined
-                }
-                aria-describedby={
-                  showWarning(password) && passwordError
-                    ? "auth-password-warning"
-                    : undefined
-                }
-                value={password}
-                onChange={(event) => {
-                  setPassword(event.target.value);
-                  clearAppError();
-                }}
-              />
-              {showWarning(password) && passwordError ? (
-                <span
-                  className="auth__warning"
-                  id="auth-password-warning"
-                  role="status"
-                >
-                  {passwordError}
-                </span>
-              ) : null}
-            </div>
+            <AuthField
+              id="auth-password"
+              label="Password"
+              type="password"
+              autoComplete={isSignup ? "new-password" : "current-password"}
+              warning={showWarning(password) ? passwordError : null}
+              value={password}
+              onChange={(event) => {
+                setPassword(event.target.value);
+                clearAppError();
+              }}
+            />
 
             {!isSignup ? (
               <div className="auth__field-row">
@@ -493,41 +423,23 @@ export function AuthScreen({
             onSubmit={handleForgotSubmit}
             noValidate
           >
-            <div className="auth__field">
-              <label htmlFor="auth-email">Email address</label>
-              <input
-                id="auth-email"
-                type="email"
-                inputMode="email"
-                autoComplete="email"
-                autoFocus
-                spellCheck={false}
-                placeholder="you@example.com"
-                aria-invalid={
-                  showWarning(email) && emailError ? true : undefined
-                }
-                aria-describedby={
-                  showWarning(email) && emailError
-                    ? "auth-email-warning"
-                    : undefined
-                }
-                value={email}
-                onChange={(event) => {
-                  setEmail(event.target.value);
-                  setResetMessage(null);
-                  setResetError("");
-                }}
-              />
-              {showWarning(email) && emailError ? (
-                <span
-                  className="auth__warning"
-                  id="auth-email-warning"
-                  role="status"
-                >
-                  {emailError}
-                </span>
-              ) : null}
-            </div>
+            <AuthField
+              id="auth-email"
+              label="Email address"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              autoFocus
+              spellCheck={false}
+              placeholder="you@example.com"
+              warning={showWarning(email) ? emailError : null}
+              value={email}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setResetMessage(null);
+                setResetError("");
+              }}
+            />
 
             {resetError ? (
               <p className="auth__error" id="auth-forgot-error" role="alert">
@@ -536,20 +448,15 @@ export function AuthScreen({
             ) : null}
 
             {resetMessage ? (
-              <div
-                className={`auth__message auth__message--${resetMessage.kind}`}
+              <StatusMessage
                 id="auth-forgot-message"
-                role="status"
-              >
-                <p>{resetMessage.text}</p>
-                {resetMessage.link ? (
-                  <p className="auth__reset-link">
-                    <a id="auth-reset-link" href={resetMessage.link}>
-                      {resetMessage.link}
-                    </a>
-                  </p>
-                ) : null}
-              </div>
+                className="auth__message"
+                kind={resetMessage.kind}
+                text={resetMessage.text}
+                link={resetMessage.link}
+                linkClassName="auth__reset-link"
+                linkId="auth-reset-link"
+              />
             ) : null}
 
             <button
@@ -579,64 +486,32 @@ export function AuthScreen({
           >
             {resetToken ? (
               <>
-                <div className="auth__field">
-                  <label htmlFor="auth-reset-password">New password</label>
-                  <input
-                    id="auth-reset-password"
-                    type="password"
-                    autoComplete="new-password"
-                    autoFocus
-                    aria-invalid={
-                      submitted && newPasswordError ? true : undefined
-                    }
-                    aria-describedby={
-                      submitted && newPasswordError
-                        ? "auth-reset-password-warning"
-                        : undefined
-                    }
-                    value={resetPassword}
-                    onChange={(event) => {
-                      setResetPassword(event.target.value);
-                      setResetError("");
-                    }}
-                  />
-                  {submitted && newPasswordError ? (
-                    <span
-                      className="auth__warning"
-                      id="auth-reset-password-warning"
-                      role="status"
-                    >
-                      {newPasswordError}
-                    </span>
-                  ) : null}
-                </div>
+                <AuthField
+                  id="auth-reset-password"
+                  label="New password"
+                  type="password"
+                  autoComplete="new-password"
+                  autoFocus
+                  warning={submitted ? newPasswordError : null}
+                  value={resetPassword}
+                  onChange={(event) => {
+                    setResetPassword(event.target.value);
+                    setResetError("");
+                  }}
+                />
 
-                <div className="auth__field">
-                  <label htmlFor="auth-reset-confirm">Confirm new password</label>
-                  <input
-                    id="auth-reset-confirm"
-                    type="password"
-                    autoComplete="new-password"
-                    aria-invalid={confirmError ? true : undefined}
-                    aria-describedby={
-                      confirmError ? "auth-reset-confirm-warning" : undefined
-                    }
-                    value={resetConfirm}
-                    onChange={(event) => {
-                      setResetConfirm(event.target.value);
-                      setResetError("");
-                    }}
-                  />
-                  {confirmError ? (
-                    <span
-                      className="auth__warning"
-                      id="auth-reset-confirm-warning"
-                      role="status"
-                    >
-                      {confirmError}
-                    </span>
-                  ) : null}
-                </div>
+                <AuthField
+                  id="auth-reset-confirm"
+                  label="Confirm new password"
+                  type="password"
+                  autoComplete="new-password"
+                  warning={confirmError}
+                  value={resetConfirm}
+                  onChange={(event) => {
+                    setResetConfirm(event.target.value);
+                    setResetError("");
+                  }}
+                />
 
                 {resetError ? (
                   <p className="auth__error" id="auth-reset-error" role="alert">

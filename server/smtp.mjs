@@ -283,22 +283,12 @@ async function send(config, to, subject, body) {
   }
 }
 
-export async function sendInviteEmail({ to, teamName, inviterName, link }) {
+/** All deliveries share the same config guard and error-to-result mapping. */
+async function withSmtp(buildMessage) {
   const config = readSmtpConfig();
-  if (!config) {
-    return { sent: false, error: "SMTP is not configured." };
-  }
+  if (!config) return { sent: false, error: "SMTP is not configured." };
 
-  const subject = `${inviterName} invited you to ${teamName} on Taskly`;
-  const body = [
-    `${inviterName} invited you to join the “${teamName}” team on Taskly.`,
-    "",
-    "Open this link on the Taskly server, sign in with this email address, and accept the invitation:",
-    link,
-    "",
-    "If you were not expecting this invitation, you can ignore this message.",
-  ].join("\r\n");
-
+  const { to, subject, body } = buildMessage(config);
   try {
     await send(config, to, subject, body);
     return { sent: true, error: null };
@@ -308,60 +298,51 @@ export async function sendInviteEmail({ to, teamName, inviterName, link }) {
       error: error instanceof Error ? error.message : "SMTP delivery failed.",
     };
   }
+}
+
+export async function sendInviteEmail({ to, teamName, inviterName, link }) {
+  return withSmtp(() => ({
+    to,
+    subject: `${inviterName} invited you to ${teamName} on Taskly`,
+    body: [
+      `${inviterName} invited you to join the “${teamName}” team on Taskly.`,
+      "",
+      "Open this link on the Taskly server, sign in with this email address, and accept the invitation:",
+      link,
+      "",
+      "If you were not expecting this invitation, you can ignore this message.",
+    ].join("\r\n"),
+  }));
 }
 
 export async function sendTestEmail({ to }) {
-  const config = readSmtpConfig();
-  if (!config) {
-    return { sent: false, error: "SMTP is not configured." };
-  }
-
-  const subject = "Taskly SMTP test";
-  const body = [
-    "This is a test message from your Taskly server.",
-    "",
-    `Sent at: ${new Date().toISOString()}`,
-    `Server: ${config.host}:${config.port}`,
-    "",
-    "If you received this, invitation and password-reset emails can be delivered.",
-  ].join("\r\n");
-
-  try {
-    await send(config, to, subject, body);
-    return { sent: true, error: null };
-  } catch (error) {
-    return {
-      sent: false,
-      error: error instanceof Error ? error.message : "SMTP delivery failed.",
-    };
-  }
+  return withSmtp((config) => ({
+    to,
+    subject: "Taskly SMTP test",
+    body: [
+      "This is a test message from your Taskly server.",
+      "",
+      `Sent at: ${new Date().toISOString()}`,
+      `Server: ${config.host}:${config.port}`,
+      "",
+      "If you received this, invitation and password-reset emails can be delivered.",
+    ].join("\r\n"),
+  }));
 }
 
 export async function sendPasswordResetEmail({ to, name, link }) {
-  const config = readSmtpConfig();
-  if (!config) {
-    return { sent: false, error: "SMTP is not configured." };
-  }
-
-  const subject = "Reset your Taskly password";
-  const body = [
-    `Hi ${name},`,
-    "",
-    "We received a request to reset the password for your Taskly account.",
-    "Open this link to choose a new password:",
-    link,
-    "",
-    "The link expires in one hour. If you were not expecting this message,",
-    "you can ignore it and your password will stay the same.",
-  ].join("\r\n");
-
-  try {
-    await send(config, to, subject, body);
-    return { sent: true, error: null };
-  } catch (error) {
-    return {
-      sent: false,
-      error: error instanceof Error ? error.message : "SMTP delivery failed.",
-    };
-  }
+  return withSmtp(() => ({
+    to,
+    subject: "Reset your Taskly password",
+    body: [
+      `Hi ${name},`,
+      "",
+      "We received a request to reset the password for your Taskly account.",
+      "Open this link to choose a new password:",
+      link,
+      "",
+      "The link expires in one hour. If you were not expecting this message,",
+      "you can ignore it and your password will stay the same.",
+    ].join("\r\n"),
+  }));
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAsyncAction } from "../lib/useAsyncAction";
 import type {
   PublicUser,
   TeamActionResult,
@@ -24,17 +25,15 @@ export function TeamInvitations({
   onDeclineInvite,
 }: TeamInvitationsProps) {
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const { busy, run: runAction } = useAsyncAction();
 
   if (invites.length === 0) return null;
 
   async function run(action: () => Promise<TeamActionResult>) {
     if (busy) return;
-    setBusy(true);
     setError("");
-    const result = await action();
-    if (!result.ok) setError(result.error);
-    setBusy(false);
+    const result = await runAction(action);
+    if (result && !result.ok) setError(result.error);
   }
 
   return (
@@ -117,15 +116,13 @@ export function TeamGate({
   onDeclineInvite,
 }: TeamGateProps) {
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const { busy, run: runAction } = useAsyncAction();
 
   async function runCreate() {
     if (busy) return;
-    setBusy(true);
     setError("");
-    const result = await onCreateTeam();
-    if (!result.ok) setError(result.error);
-    setBusy(false);
+    const result = await runAction(onCreateTeam);
+    if (result && !result.ok) setError(result.error);
   }
 
   return (

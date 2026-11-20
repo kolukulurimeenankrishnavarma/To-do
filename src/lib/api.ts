@@ -2,12 +2,15 @@ import type {
   ApiAuthResult,
   AppState,
   AuthInput,
+  EmailCheckResponse,
   PasswordResetRequestResult,
   ServerMeta,
   SessionPayload,
   TeamActionResult,
   TeamInviteResult,
 } from "../types";
+import { randomId } from "./id";
+import { safeSessionStorage } from "./storage";
 
 const TOKEN_KEY = "taskly.server.token";
 const CLIENT_KEY = "taskly.server.client";
@@ -24,27 +27,8 @@ export class ApiError extends Error {
   }
 }
 
-function randomId(): string {
-  if (
-    typeof crypto !== "undefined" &&
-    typeof crypto.randomUUID === "function"
-  ) {
-    return crypto.randomUUID();
-  }
-  return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function getSessionStorage(): Storage | null {
-  try {
-    if (typeof window === "undefined") return null;
-    return window.sessionStorage;
-  } catch {
-    return null;
-  }
-}
-
 export function getToken(): string | null {
-  const storage = getSessionStorage();
+  const storage = safeSessionStorage();
   if (!storage) return memoryToken;
 
   try {
@@ -56,7 +40,7 @@ export function getToken(): string | null {
 
 function setToken(token: string | null): void {
   memoryToken = token;
-  const storage = getSessionStorage();
+  const storage = safeSessionStorage();
   if (!storage) return;
 
   try {
@@ -70,7 +54,7 @@ function setToken(token: string | null): void {
 export function getClientId(): string {
   if (memoryClient) return memoryClient;
 
-  const storage = getSessionStorage();
+  const storage = safeSessionStorage();
   if (storage) {
     try {
       const existing = storage.getItem(CLIENT_KEY);
@@ -202,7 +186,7 @@ export async function logout(): Promise<void> {
 }
 
 export async function checkEmailExists(email: string): Promise<boolean> {
-  const response = await request<{ exists: boolean }>(
+  const response = await request<EmailCheckResponse>(
     `/api/check-email?email=${encodeURIComponent(email)}`,
   );
   return response.exists;

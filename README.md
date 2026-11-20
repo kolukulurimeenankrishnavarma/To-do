@@ -498,41 +498,65 @@ src/
   App.tsx                 session shell: restores session, auth or board
   main.tsx                React entry point
   styles.css              shared design system + auth/account styles
-  types.ts                task, user, auth, filter, and sort types
+  types.ts                task, user, auth, result, filter, and sort types
   components/
+    AuthField.tsx         labelled auth input with inline warning
     AuthScreen.tsx        sign-up/sign-in plus forgot/reset password panels
     CountryPicker.tsx     searchable flag/dial-code combobox
     DeadlineBadge.tsx     due/overdue/on-time/late labels
     DeadlinePicker.tsx    popover, presets, preview, save/cancel/clear
     EditableTitle.tsx     inline rename with Enter/Escape handling
+    EmptyState.tsx        shared empty-list message and recovery action
     HistoryItem.tsx       completed-task row and restore action
     Icons.tsx             inline SVG icons, including the profile glyph
     ProgressControls.tsx  slider, note field, log button
     ProgressLog.tsx       expandable log with exact timestamps
     StatsBar.tsx          pending/overdue/completed summary
+    StatusMessage.tsx     shared auth/team success and error feedback
     TaskForm.tsx          new-task form, deadline, team assignment
     TaskItem.tsx          active-task row and inline reassignment
-    TasklyBoard.tsx       workspace state, actions, persistence
+    TasklyBoard.tsx       board layout around the state hook
     TaskToolbar.tsx       view hint and sort select
     TeamGate.tsx          create-team and pending-invitation panels
     TeamOverview.tsx      totals, roster, invites, host controls, updates
+    ThemeToggle.tsx       light/dark mode control
   lib/
-    auth.ts               name/email/mobile/password validation
     api.ts                server client, tab token/client IDs, SSE URL
+    auth.ts               name/email/mobile/password validation
     constants.ts          storage keys, limits, auth parameters
     countryCodes.ts       country names, flags, dial codes, locale default
     date.ts               deadline labels, picker helpers, timestamps
-    localStorage.ts       safe sessionStorage access
+    id.ts                 local task IDs
+    popoverPlacement.ts   keeps popovers inside the viewport
     progress.ts           clamping and note-aware progress entries
-    storage.ts            empty task-state factory
+    snapshotHistory.ts    bounded history of locally saved snapshots
+    sortPreference.ts     remembered sort choice
+    storage.ts            safe storage access + empty task-state factory
     tabState.ts           per-tab active team selection
+    taskPermissions.ts    single assignee-only client-side guard
     tasks.ts              completion, filters, sorting, stats
+    theme.ts              system/remembered theme handling
+    useAsyncAction.ts     shared in-flight action state
+    useTaskBoard.ts       private/team board state, actions, persistence
+    useTransientFlag.ts   short-lived UI flags
 server/
-  index.mjs             HTTP API, SSE, auth routes, static dist/ serving
+  index.mjs             route table, SSE wiring, static dist/ serving
+  authRoutes.mjs        register/login/forgot/reset/logout handlers
+  teamRoutes.mjs        team, invite, and state-save handlers
   db.mjs                serialized atomic JSON persistence
   state.mjs             task/team state normalization
+  permissions.mjs       shared server-side ownership checks
+  sessions.mjs          bearer lookup, token hashing, session invalidation
+  validation.mjs        auth validation and PBKDF2 helpers
   smtp.mjs              optional invitation and reset email delivery
-  validation.mjs        auth validation, PBKDF2, session and reset tokens
+  sse.mjs               server-sent event broadcast
+  urls.mjs              public invite/reset URL construction
+  env.mjs               .env loading
+  http.mjs              JSON/error responses and request body reading
+  responses.mjs         shared session and mutation response helpers
+  views.mjs             session payload and team/invitation projections
+  staticFiles.mjs       built-asset serving with traversal guard
+  mail-test.mjs         `npm run mail:test` entry point
 scripts/
   check-node.mjs        Node version preflight used by npm scripts
   dev.mjs               starts the API and Vite together
@@ -543,6 +567,7 @@ tests/
 API routes:
 
 ```text
+GET    /api/health                   server liveness check
 GET    /api/meta                     first-run and SMTP status
 POST   /api/auth/register            create account and session
 POST   /api/auth/login               email + password login
@@ -560,15 +585,39 @@ DELETE /api/teams/:id/invites/:invite
 DELETE /api/teams/:id/members/:user  host removes one teammate
 DELETE /api/teams/:id                host deletes the whole team
 GET    /api/events?token=&client=    server-sent realtime updates
+POST   /api/test/reset               E2E-only database reset (TASKLY_TEST_MODE=1)
 ```
+
+Every route except `/api/health`, `/api/meta`, `/api/events`,
+`/api/check-email`, auth registration/login/reset, and the test reset needs a
+bearer token from `/api/auth/register`, `/api/auth/login`, or
+`/api/auth/reset-password`. Team host controls and task ownership are checked
+again on the server, so calling `PUT /api/teams/:id/state` directly cannot grant
+permissions the browser does not allow.
 
 ## Tests
 
 ```bash
-npm test          # unit tests: validation, progress, filters, dates, SMTP, .env
+npm test          # unit tests for pure helpers, validation, and SMTP
 npm run test:e2e  # browser flows at phone, tablet, laptop, and desktop sizes
 npm run build     # includes tsc project checks
 ```
+
+Unit tests run from both source trees:
+
+- `src/lib/auth.test.ts` — name, email, mobile, and password validation
+- `src/lib/tasks.test.ts` — filters, sorting, completion, and statistics
+- `src/lib/date.test.ts` — deadline labels, picker helpers, and timestamps
+- `src/lib/api.test.ts` — typed API responses, including email availability
+- `src/lib/taskPermissions.test.ts` — assignee-only client-side task rules
+- `src/lib/snapshotHistory.test.ts` — bounded history of local save snapshots
+- `server/validationParity.test.mjs` — client/server validation constants and
+  message parity
+- `server/permissions.test.mjs` — server-side task ownership checks
+- `server/smtp.test.mjs` — SMTP configuration and delivery through a local fake
+  server
+- `server/env.test.mjs` — `.env` parsing and precedence
+- `server/urls.test.mjs` — public invite/reset URL construction
 
 The E2E suite resets the server database before each test and covers
 name/email/mobile signup, email-only login, duplicate emails, typed country-code

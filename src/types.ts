@@ -1,3 +1,8 @@
+/** Shared success-or-error shape for API and form actions. */
+export type Result<T extends object = Record<string, never>> =
+  | ({ ok: true } & T)
+  | { ok: false; error: string };
+
 export type ProgressEntry = {
   value: number;
   at: number;
@@ -100,29 +105,21 @@ export type TeamInviteView = {
   invite: TeamInvite;
 };
 
-export type TeamActionResult =
-  | { ok: true; teamId?: string }
-  | { ok: false; error: string };
+export type TeamActionResult = Result<{ teamId?: string }>;
 
-export type TeamInviteResult =
-  | {
-      ok: true;
-      teamId?: string;
-      invite?: TeamInvite;
-      inviteUrl?: string;
-      emailSent?: boolean;
-      emailError?: string | null;
-    }
-  | { ok: false; error: string };
+export type TeamInviteResult = Result<{
+  teamId?: string;
+  invite?: TeamInvite;
+  inviteUrl?: string;
+  emailSent?: boolean;
+  emailError?: string | null;
+}>;
 
-export type PasswordResetRequestResult =
-  | {
-      ok: true;
-      resetUrl?: string;
-      emailSent?: boolean;
-      emailError?: string | null;
-    }
-  | { ok: false; error: string };
+export type PasswordResetRequestResult = Result<{
+  resetUrl?: string;
+  emailSent?: boolean;
+  emailError?: string | null;
+}>;
 
 export type SessionPayload = {
   user: PublicUser;
@@ -132,13 +129,19 @@ export type SessionPayload = {
   revision: number;
 };
 
-export type ApiAuthResult =
-  | { ok: true; session: SessionPayload; created: boolean }
-  | { ok: false; error: string };
+export type ApiAuthResult = Result<{
+  session: SessionPayload;
+  created: boolean;
+}>;
 
 export type ServerMeta = {
   hasAccounts: boolean;
   smtpConfigured: boolean;
+};
+
+export type EmailCheckResponse = {
+  valid: boolean;
+  exists: boolean;
 };
 
 export type AuthInput = {
