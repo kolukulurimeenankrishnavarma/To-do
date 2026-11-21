@@ -39,50 +39,6 @@ export type TaskSort =
   | "progress-asc"
   | "title";
 
-/** A private, per-user mood/energy snapshot used only by the rule engine. */
-export type CheckIn = {
-  energy: number;
-  mood: number;
-  focus: number;
-  /** Minutes the user says they have available right now. */
-  timeWindow: number;
-  goal: string;
-  blockers: string;
-  createdAt: number;
-};
-
-export type RecurrenceCadence =
-  | "daily"
-  | "weekly"
-  | "biweekly"
-  | "monthly";
-
-/**
- * A rule inferred from repeated completed work. `targetTeamId` is null for a
- * private rule; server-side checks always re-verify team membership before a
- * run is allowed to write into that team's state.
- */
-export type RecurrenceRule = {
-  id: string;
-  titleKey: string;
-  title: string;
-  cadence: RecurrenceCadence;
-  intervalMs: number;
-  lastCreatedAt: number;
-  createdAt: number;
-  sourceTaskIds: string[];
-  targetTeamId: string | null;
-  enabled: boolean;
-};
-
-export type Insights = {
-  version: number;
-  checkIn: CheckIn | null;
-  recurringRules: RecurrenceRule[];
-  dismissedNudges: string[];
-  updatedAt: number;
-};
-
 export type DeadlineInfo = {
   text: string;
   className: string;
@@ -171,7 +127,6 @@ export type SessionPayload = {
   teams: TeamView[];
   invites: TeamInviteView[];
   revision: number;
-  insights: Insights;
 };
 
 export type ApiAuthResult = Result<{

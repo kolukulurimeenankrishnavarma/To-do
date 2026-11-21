@@ -23,7 +23,6 @@
     "pretest:e2e": "node scripts/check-node.mjs",
     "test:e2e": "playwright test",
     "mail:test": "node server/mail-test.mjs",
-    "synthetic:generate": "node scripts/generate-synthetic.mjs",
     "pretypecheck": "node scripts/check-node.mjs",
     "typecheck": "tsc -b"
   },

@@ -18,7 +18,6 @@ import {
   logout,
   removeTeamMember,
   requestPasswordReset,
-  runRecurring,
 } from "./lib/api";
 import {
   applyTheme,
@@ -326,12 +325,6 @@ export default function App() {
     );
   }
 
-  async function handleRunRecurring() {
-    const result = await runRecurring();
-    await refreshSession();
-    return result;
-  }
-
   if (!session && !meta) {
     return (
       <main className="auth">
@@ -384,7 +377,6 @@ export default function App() {
       key={session.user.id}
       user={session.user}
       initialState={session.state}
-      initialInsights={session.insights}
       teams={session.teams}
       invites={session.invites}
       focusInviteId={focusInviteId}
@@ -396,7 +388,6 @@ export default function App() {
       onLogout={handleLogout}
       onRemoveTeamMember={handleRemoveTeamMember}
       onDeleteTeam={handleDeleteTeam}
-      onRunRecurring={handleRunRecurring}
       theme={theme}
       onToggleTheme={handleToggleTheme}
     />

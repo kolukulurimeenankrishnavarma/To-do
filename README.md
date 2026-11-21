@@ -273,7 +273,6 @@ create a 1 GB disk mounted at `/data` on a paid plan and set
 | `npm run test:watch` | Run Vitest in watch mode                           |
 | `npm run test:e2e`   | Run the Playwright browser suite                   |
 | `npm run mail:test`  | Send a test email using the configured SMTP server  |
-| `npm run synthetic:generate` | Write deterministic synthetic tasks/insights to `data/synthetic/` |
 | `npm run typecheck`  | Run TypeScript project checks                      |
 | `npm run lint`       | Run oxlint                                         |
 
@@ -334,48 +333,6 @@ React-only enhancements:
 - **Stats summary** — pending, overdue, and completed totals
 - **Inline title editing** — click a task or history title to rename it in
   place; `Enter` or blur saves, `Esc` cancels
-- **Private rule-based insights** — an optional mood/energy check-in, reversible
-  best-fit ordering, draft deadline advice, gentle nudges, and repeating-task
-  detection with server-side auto-creation. No machine learning, external API,
-  or team-state exposure is involved.
-
-### Rule-based insights
-
-All insight data is private to an account and is returned only in
-`SessionPayload.insights`. Team boards, team views, and team state never contain
-it.
-
-**Check-in.** Five core questions (energy, mood, focus, time available, and a
-goal) plus an optional blockers field. The server stores the normalized answers
-with a timestamp. No ML model is used.
-
-**Best-fit ordering.** After a check-in, All tasks and Pending are temporarily
-sorted by deterministic scores: low energy/focus or a short time window favors
-in-progress quick wins; high capacity favors complex, low-progress work.
-Deadlines, goal-word overlap, blockers, and stalled logs adjust the score. The
-sorting choice in localStorage is never overwritten; a strip above the list
-offers **Back to my sort**. Overdue stays deadline-first and Completed is
-unchanged.
-
-**Draft advice.** While typing a title, similar completed work (and a
-9-day baseline derived from the supplied dataset) suggests whether a deadline
-looks tight or has room. It is advisory only and never blocks saving.
-
-**Nudges.** Deterministic rules surface stale check-ins, overdue piles, stalled
-progress, undated work, and blockers. Each nudge can be dismissed.
-
-**Recurring work.** Two or more completed tasks with a consistent gap
-(day/week/two weeks/month) become a suggested rule. Enabling it stores a rule;
-the only automatic write is `POST /api/insights/recurring/run`, which is
-authorization-checked, uses `JsonStore.mutate`, deduplicates by title key since
-`lastCreatedAt`, verifies team membership for team rules, and broadcasts SSE
-updates.
-
-The dataset export used for templates and baselines was
-`To-Do List DataSet - Sheet1.pdf` (5,000 rows). Its task verb/object pairs,
-cadences, categories, priorities, shift reasons, and duration distribution feed
-the deterministic generator in `scripts/generate-synthetic.mjs`; the PDF itself
-is not committed.
 
 ## Storage format
 
@@ -384,7 +341,7 @@ server's JSON database (`data/db.json` by default):
 
 ```json
 {
-  "version": 7,
+  "version": 5,
   "revision": 12,
   "users": [
     {
@@ -489,37 +446,7 @@ server's JSON database (`data/db.json` by default):
       "createdAt": 0,
       "expiresAt": 0
     }
-  ],
-  "insights": {
-    "user_...": {
-      "version": 1,
-      "checkIn": {
-        "energy": 3,
-        "mood": 4,
-        "focus": 3,
-        "timeWindow": 60,
-        "goal": "finish the API migration",
-        "blockers": "",
-        "createdAt": 0
-      },
-      "recurringRules": [
-        {
-          "id": "rule_review_api_gateway",
-          "titleKey": "review api gateway",
-          "title": "Review API Gateway",
-          "cadence": "weekly",
-          "intervalMs": 604800000,
-          "lastCreatedAt": 0,
-          "createdAt": 0,
-          "sourceTaskIds": ["..."],
-          "targetTeamId": null,
-          "enabled": true
-        }
-      ],
-      "dismissedNudges": [],
-      "updatedAt": 0
-    }
-  }
+  ]
 }
 ```
 
@@ -536,18 +463,6 @@ the right person.
 one-hour expiry. A successful reset replaces the password hash, deletes the
 user's reset tokens, and removes every session for that account. Expired reset
 tokens and sessions are dropped when the database is loaded.
-
-`insights[userId]` stores only private check-ins, dismissed nudge IDs, and
-recurring rules. It is never written into `data[userId]` or any `teams[].state`,
-and is sent only in that user's session payload. The JSON loader normalizes it,
-clamps scores, drops malformed rules, and deduplicates rules by title key plus
-target team. A team-targeted rule is disabled automatically if the team is
-deleted or the user is no longer a member.
-
-The insight endpoints are `GET /api/insights`, `PUT /api/insights`, and
-`POST /api/insights/recurring/run`. All require a valid session; the run endpoint
-re-checks membership before writing to a team and broadcasts to every affected
-member over SSE.
 
 `teams[]` holds every independent team. Each team's `state` is shared with its
 accepted members, while `data[userId]` is always private to that user. Team
@@ -590,11 +505,9 @@ src/
     CountryPicker.tsx     searchable flag/dial-code combobox
     DeadlineBadge.tsx     due/overdue/on-time/late labels
     DeadlinePicker.tsx    popover, presets, preview, save/cancel/clear
-    CheckInCard.tsx       private energy/mood/focus check-in form
     EditableTitle.tsx     inline rename with Enter/Escape handling
     EmptyState.tsx        shared empty-list message and recovery action
     HistoryItem.tsx       completed-task row and restore action
-    InsightNudges.tsx     nudges, recurrence candidates, and run control
     Icons.tsx             inline SVG icons, including the profile glyph
     ProgressControls.tsx  slider, note field, log button
     ProgressLog.tsx       expandable log with exact timestamps
@@ -614,7 +527,6 @@ src/
     countryCodes.ts       country names, flags, dial codes, locale default
     date.ts               deadline labels, picker helpers, timestamps
     id.ts                 local task IDs
-    insights.ts           check-in normalization, best-fit scores, advice, rules
     popoverPlacement.ts   keeps popovers inside the viewport
     progress.ts           clamping and note-aware progress entries
     snapshotHistory.ts    bounded history of locally saved snapshots
@@ -630,8 +542,6 @@ src/
 server/
   index.mjs             route table, SSE wiring, static dist/ serving
   authRoutes.mjs        register/login/forgot/reset/logout handlers
-  insightRoutes.mjs     private insight save, read, and recurrence-run handlers
-  insights.mjs          insight normalization and recurrence detection
   teamRoutes.mjs        team, invite, and state-save handlers
   db.mjs                serialized atomic JSON persistence
   state.mjs             task/team state normalization
@@ -650,7 +560,6 @@ server/
 scripts/
   check-node.mjs        Node version preflight used by npm scripts
   dev.mjs               starts the API and Vite together
-  generate-synthetic.mjs deterministic task/insight fixtures from dataset patterns
 tests/
   e2e/app.spec.ts        Playwright coverage of the main flows
 ```
@@ -668,9 +577,6 @@ GET    /api/check-email?email=       duplicate-email check
 GET    /api/session                  current user, private state, teams, invites
 POST   /api/auth/logout              revoke this tab's session
 PUT    /api/private-state            save private tasks/history
-GET    /api/insights                 current user's private insights
-PUT    /api/insights                 save check-in, nudges, and recurring rules
-POST   /api/insights/recurring/run   create due recurring tasks atomically
 POST   /api/teams                    create a team
 PUT    /api/teams/:id/state          save shared tasks/history
 POST   /api/teams/:id/invites        invite by email
@@ -705,10 +611,6 @@ Unit tests run from both source trees:
 - `src/lib/api.test.ts` — typed API responses, including email availability
 - `src/lib/taskPermissions.test.ts` — assignee-only client-side task rules
 - `src/lib/snapshotHistory.test.ts` — bounded history of local save snapshots
-- `src/lib/insights.test.ts` — best-fit scoring, deadline advice, normalization,
-  and recurrence detection
-- `server/insights.test.mjs` — server normalization, detection, and safe rule
-  classification
 - `server/validationParity.test.mjs` — client/server validation constants and
   message parity
 - `server/permissions.test.mjs` — server-side task ownership checks

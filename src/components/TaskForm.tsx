@@ -1,6 +1,5 @@
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { MAX_TITLE_LENGTH } from "../lib/constants";
-import { deadlineAdvice } from "../lib/insights";
 import {
   combineDateAndTime,
   dateInputValue,
@@ -9,13 +8,12 @@ import {
   timeInputValue,
 } from "../lib/date";
 import { useTransientFlag } from "../lib/useTransientFlag";
-import type { CompletedTask, PublicUser, Workspace } from "../types";
+import type { PublicUser, Workspace } from "../types";
 import { DeadlinePicker } from "./DeadlinePicker";
 
 type TaskFormProps = {
   now: number;
   workspace: Workspace;
-  history: CompletedTask[];
   members: PublicUser[];
   currentUserId: string;
   onAdd: (
@@ -28,7 +26,6 @@ type TaskFormProps = {
 export function TaskForm({
   now,
   workspace,
-  history,
   members,
   currentUserId,
   onAdd,
@@ -45,11 +42,6 @@ export function TaskForm({
   const [shake, triggerShake] = useTransientFlag(340);
 
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const advice = useMemo(
-    () => deadlineAdvice(title, draftDeadline, { tasks: [], history }, now),
-    [title, draftDeadline, history, now],
-  );
 
   function showError(message: string) {
     setError(message);
@@ -183,12 +175,6 @@ export function TaskForm({
           Add task
         </button>
       </form>
-
-      {advice ? (
-        <p className="draft-advice" id="draft-advice">
-          {advice}
-        </p>
-      ) : null}
 
       {error ? (
         <p className="form-error" id="form-error" role="alert">
