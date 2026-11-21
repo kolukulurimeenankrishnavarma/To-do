@@ -3,6 +3,7 @@ import type {
   AppState,
   AuthInput,
   EmailCheckResponse,
+  Insights,
   PasswordResetRequestResult,
   ServerMeta,
   SessionPayload,
@@ -233,6 +234,24 @@ export async function savePrivateState(state: AppState): Promise<void> {
     method: "PUT",
     body: JSON.stringify({ state }),
   });
+}
+
+export async function getInsights(): Promise<Insights> {
+  const response = await request<{ ok: true; insights: Insights }>(
+    "/api/insights",
+  );
+  return response.insights;
+}
+
+export async function saveInsights(insights: Insights): Promise<Insights> {
+  const response = await request<{ ok: true; insights: Insights }>(
+    "/api/insights",
+    {
+      method: "PUT",
+      body: JSON.stringify({ insights }),
+    },
+  );
+  return response.insights;
 }
 
 export async function saveTeamState(

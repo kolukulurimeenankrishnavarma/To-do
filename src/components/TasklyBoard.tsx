@@ -1,5 +1,7 @@
+import { DailyCheckIn } from "./DailyCheckIn";
 import { EmptyState } from "./EmptyState";
 import { HistoryItem } from "./HistoryItem";
+import { InsightPanel } from "./InsightPanel";
 import { StatsBar } from "./StatsBar";
 import { TaskForm } from "./TaskForm";
 import { TaskItem } from "./TaskItem";
@@ -32,6 +34,7 @@ const VIEWS: { id: TaskFilter; label: string }[] = [
 export function TasklyBoard({
   user,
   initialState,
+  initialInsights,
   teams,
   invites,
   focusInviteId = null,
@@ -49,6 +52,7 @@ export function TasklyBoard({
   const board = useTaskBoard({
     user,
     initialState,
+    initialInsights,
     teams,
     invites,
     focusInviteId,
@@ -101,6 +105,20 @@ export function TasklyBoard({
     counts,
     visibleTasks,
     stats,
+    today,
+    checkInOpen,
+    checkIn,
+    baseline,
+    deadlinePatterns,
+    suggestions,
+    addNudge,
+    bestFit,
+    bestFitAvailable,
+    insightError,
+    handleSaveCheckIn,
+    handleSkipCheckIn,
+    toggleBestFit,
+    revealTask,
   } = board;
 
   const pendingLabel = workspace === "team" ? "Team tasks" : "To do";
@@ -223,6 +241,29 @@ export function TasklyBoard({
         </aside>
 
         <div className="app__content">
+          {workspace === "private" && checkInOpen ? (
+            <DailyCheckIn
+              day={today}
+              onSave={handleSaveCheckIn}
+              onSkip={handleSkipCheckIn}
+            />
+          ) : null}
+
+          {workspace === "private" ? (
+            <InsightPanel
+              baseline={baseline}
+              checkIn={checkIn}
+              suggestions={suggestions}
+              patterns={deadlinePatterns}
+              nudge={addNudge}
+              error={insightError}
+              bestFitAvailable={bestFitAvailable}
+              bestFit={bestFit}
+              onToggleBestFit={toggleBestFit}
+              onShowTask={revealTask}
+            />
+          ) : null}
+
           {workspace === "private" ? <StatsBar stats={stats} /> : null}
 
           {workspace === "private" && invites.length > 0 ? (
@@ -330,6 +371,8 @@ export function TasklyBoard({
                   workspace={workspace}
                   members={members}
                   currentUserId={user.id}
+                  nudge={addNudge}
+                  deadlinePatterns={deadlinePatterns}
                   onAdd={addTask}
                 />
               ) : null}
@@ -355,7 +398,13 @@ export function TasklyBoard({
                   </div>
 
                   {state.tasks.length > 0 ? (
-                    <TaskToolbar sort={sort} onSortChange={handleSortChange} />
+                    <TaskToolbar
+                      sort={sort}
+                      onSortChange={handleSortChange}
+                      bestFitAvailable={bestFitAvailable}
+                      bestFit={bestFit}
+                      onToggleBestFit={toggleBestFit}
+                    />
                   ) : null}
 
                   {state.tasks.length === 0 ? (

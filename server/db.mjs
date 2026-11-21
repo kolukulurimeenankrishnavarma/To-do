@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { emptyInsights, normalizeInsights } from "./insights.mjs";
 import { emptyState, normalizeState } from "./state.mjs";
 import { SESSION_MAX_AGE } from "./validation.mjs";
 
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 function isRecord(value) {
   return typeof value === "object" && value !== null;
@@ -16,6 +17,7 @@ export function emptyDb() {
     revision: 0,
     users: [],
     data: {},
+    insights: {},
     teams: [],
     sessions: [],
     passwordResets: [],
@@ -151,10 +153,14 @@ function normalizeDb(value) {
   const userIds = new Set(users.map((user) => user.id));
 
   const data = {};
+  const insights = {};
   for (const user of users) {
     data[user.id] = isRecord(value.data)
       ? normalizeState(value.data[user.id])
       : emptyState();
+    insights[user.id] = isRecord(value.insights)
+      ? normalizeInsights(value.insights[user.id])
+      : emptyInsights();
   }
 
   const teams = Array.isArray(value.teams)
@@ -194,6 +200,7 @@ function normalizeDb(value) {
         : 0,
     users,
     data,
+    insights,
     teams,
     sessions,
     passwordResets,

@@ -67,10 +67,25 @@ type DbTeam = {
   };
 };
 
+type DbInsights = {
+  version: number;
+  checkIn: {
+    day: string;
+    energy: number;
+    mood: number;
+    timeWindow: number;
+    answers: { id: string; prompt: string; value: number }[];
+    createdAt: number;
+  } | null;
+  lastPromptDay: string | null;
+  updatedAt: number;
+};
+
 type Db = {
   revision: number;
   users: DbUser[];
   data: Record<string, unknown>;
+  insights: Record<string, DbInsights>;
   teams: DbTeam[];
 };
 
@@ -186,6 +201,85 @@ async function storedUser(page: Page, email = DEFAULT_EMAIL) {
   return (
     db.users.find((entry) => entry.emailKey === email.toLowerCase()) ?? null
   );
+}
+
+async function storedInsights(page: Page, email = DEFAULT_EMAIL) {
+  const db = await readDb();
+  const user = db.users.find((entry) => entry.emailKey === email.toLowerCase());
+  return user ? db.insights?.[user.id] ?? null : null;
+}
+
+function noonDaysAgo(daysAgo: number): number {
+  const date = new Date();
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() - daysAgo);
+  return date.getTime();
+}
+
+function dbTask(
+  id: string,
+  title: string,
+  createdAt: number,
+  completedAt?: number,
+): DbTask {
+  return {
+    id,
+    title,
+    createdAt,
+    deadline: null,
+    assigneeId: null,
+    progress: completedAt === undefined ? 0 : 100,
+    progressLog: [],
+    ...(completedAt === undefined ? {} : { completedAt }),
+  };
+}
+
+/** Seven prior active days with six finished tasks each: a streak of six. */
+function seededBaselineState(title = "Done task"): { tasks: DbTask[]; history: DbTask[] } {
+  const history: DbTask[] = [];
+  for (let daysAgo = 7; daysAgo >= 1; daysAgo -= 1) {
+    const createdAt = noonDaysAgo(daysAgo) - 3 * 60 * 60 * 1000;
+    const completedAt = noonDaysAgo(daysAgo) + 2 * 60 * 60 * 1000;
+    for (let index = 0; index < 6; index += 1) {
+      history.push(
+        dbTask(`seed-${daysAgo}-${index}`, `${title} #${daysAgo}-${index}`, createdAt, completedAt),
+      );
+    }
+  }
+  return { tasks: [], history };
+}
+
+async function seedPrivateState(page: Page, state: { tasks: DbTask[]; history: DbTask[] }) {
+  const token = await sessionToken(page);
+  const response = await page.request.put("/api/private-state", {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { state },
+  });
+  expect(response.ok()).toBe(true);
+  await page.reload();
+  await expect(page.locator(".app__title")).toHaveText("Taskly");
+}
+
+async function skipCheckIn(page: Page) {
+  const skip = page.locator("#checkin-skip");
+  if (await skip.isVisible()) await skip.click();
+  await expect(page.locator("#daily-checkin")).toHaveCount(0);
+}
+
+async function completeCheckIn(
+  page: Page,
+  { moodValues = [1, 1, 1], energy = 1, minutes = 15 } = {},
+) {
+  await expect(page.locator("#daily-checkin")).toBeVisible();
+  for (const value of moodValues) {
+    await page.locator("#daily-checkin .checkin__choice").nth(value - 1).click();
+    await page.locator("#checkin-next").click();
+  }
+  await page.locator(`#energy-${energy}`).click();
+  await page.locator("#checkin-next").click();
+  await page.fill("#checkin-minutes", String(minutes));
+  await page.locator("#checkin-save").click();
+  await expect(page.locator("#daily-checkin")).toHaveCount(0);
 }
 
 async function putTeamState(
@@ -2094,4 +2188,122 @@ test("long names, emails, and deadline badges wrap on a 320px phone", async ({
   const longEmail = `${"x".repeat(200)}@example.com`;
   await inviteByEmail(page, longEmail);
   await assertFitsViewport(page, "320 long team name and invite email");
+});
+
+test("daily check-in asks unique questions once and stores a private snapshot", async ({
+  page,
+}) => {
+  await signUp(page);
+  await expect(page.locator("#daily-checkin")).toBeVisible();
+
+  const seen: string[] = [];
+  for (let index = 0; index < 3; index += 1) {
+    const prompt = (await page.locator("#daily-checkin .checkin__prompt").textContent()) ?? "";
+    expect(prompt.trim()).not.toBe("");
+    expect(seen).not.toContain(prompt);
+    seen.push(prompt);
+    await page.locator("#daily-checkin .checkin__choice").nth(index + 1).click();
+    await page.locator("#checkin-next").click();
+  }
+
+  await expect(page.locator("#daily-checkin .checkin__prompt")).toHaveText(
+    "How much energy do you have right now?",
+  );
+  await page.locator("#energy-4").click();
+  await page.locator("#checkin-next").click();
+  await page.fill("#checkin-minutes", "45");
+  await page.locator("#checkin-save").click();
+
+  await expect(page.locator("#daily-checkin")).toHaveCount(0);
+  await expect(page.locator("#insight-panel")).toContainText(
+    "Today: mood 3/5 · energy 4/5 · 45 minutes available",
+  );
+
+  const user = await storedUser(page);
+  await waitForDb((db) => Boolean(user && db.insights?.[user.id]?.checkIn));
+  const saved = await storedInsights(page);
+  expect(saved?.checkIn?.answers).toHaveLength(3);
+  expect(saved?.checkIn?.energy).toBe(4);
+  expect(saved?.checkIn?.timeWindow).toBe(45);
+  expect(new Set(saved?.checkIn?.answers.map((answer) => answer.id)).size).toBe(3);
+  expect(saved?.lastPromptDay).toBe(saved?.checkIn?.day);
+
+  await page.reload();
+  await expect(page.locator(".app__title")).toHaveText("Taskly");
+  await expect(page.locator("#daily-checkin")).toHaveCount(0);
+});
+
+test("the add nudge follows the seven-day streak and never blocks more tasks", async ({
+  page,
+}) => {
+  await signUp(page);
+  await skipCheckIn(page);
+  await seedPrivateState(page, seededBaselineState());
+
+  await expect(page.locator("#insight-panel")).toContainText("Streak 6");
+  await expect(page.locator("#task-add-nudge")).toHaveCount(0);
+
+  for (let index = 1; index <= 5; index += 1) await addTask(page, `Today ${index}`);
+  await expect(page.locator("#task-add-nudge")).toHaveCount(0);
+
+  await addTask(page, "Today 6");
+  await expect(page.locator("#task-add-nudge")).toContainText("6 tasks today");
+  await expect(page.locator("#task-add-nudge")).toContainText("streak is about 6");
+
+  await addTask(page, "Today 7");
+  await expect(page.locator("#task-add-nudge")).toBeVisible();
+  await expect(page.locator("#task-list .item")).toHaveCount(7);
+});
+
+test("repeated tasks give advisory deadlines in private only", async ({ page }) => {
+  await signUp(page);
+  await skipCheckIn(page);
+  await seedPrivateState(page, seededBaselineState("Review report"));
+
+  await page.fill("#task-input", "Review report #99");
+  await expect(page.locator("#deadline-advice")).toContainText("42 similar tasks");
+  await expect(page.locator("#deadline-advice")).toContainText("about 2 days");
+  await expect(page.locator("#deadline-advice")).toContainText(
+    "Your deadline stays your choice",
+  );
+
+  await createTeam(page);
+  await expect(page.locator("#insight-panel")).toHaveCount(0);
+  await expect(page.locator("#daily-checkin")).toHaveCount(0);
+  await page.fill("#task-input", "Review report #100");
+  await expect(page.locator("#deadline-advice")).toHaveCount(0);
+});
+
+test("best-fit order is reversible and never applies to overdue or team tasks", async ({
+  page,
+}) => {
+  await signUp(page);
+  await completeCheckIn(page);
+
+  await addTask(page, "review notes");
+  await setProgress(
+    page.locator("#task-list .item", { hasText: "review notes" }),
+    80,
+  );
+  await addTask(page, "refactor api");
+
+  expect(await taskTitles(page)).toEqual(["refactor api", "review notes"]);
+  await expect(page.locator(".sort__select")).toHaveValue("newest");
+  await expect(page.locator("#best-fit-toggle")).toBeVisible();
+
+  await page.locator("#best-fit-toggle").click();
+  expect(await taskTitles(page)).toEqual(["review notes", "refactor api"]);
+  await expect(page.locator(".sort__select")).toHaveValue("newest");
+
+  await page.locator("#best-fit-toggle").click();
+  expect(await taskTitles(page)).toEqual(["refactor api", "review notes"]);
+
+  await page.locator("#view-overdue").click();
+  await expect(page.locator("#best-fit-toggle")).toHaveCount(0);
+
+  await page.locator("#view-all").click();
+  await page.locator("#best-fit-toggle").click();
+  await openTeam(page);
+  await createTeam(page);
+  await expect(page.locator("#best-fit-toggle")).toHaveCount(0);
 });

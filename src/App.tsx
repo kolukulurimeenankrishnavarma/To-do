@@ -377,6 +377,7 @@ export default function App() {
       key={session.user.id}
       user={session.user}
       initialState={session.state}
+      initialInsights={session.insights}
       teams={session.teams}
       invites={session.invites}
       focusInviteId={focusInviteId}

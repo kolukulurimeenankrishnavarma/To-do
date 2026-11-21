@@ -69,7 +69,7 @@ export function TaskItem({
     .join(" ");
 
   return (
-    <li className={className} data-id={task.id}>
+    <li className={className} id={`task-${task.id}`} data-id={task.id}>
       <button
         type="button"
         className={`check${canComplete ? "" : " check--locked"}`}

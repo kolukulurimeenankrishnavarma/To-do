@@ -1,5 +1,5 @@
 /** Shared success-or-error shape for API and form actions. */
-export type Result<T extends object = Record<string, never>> =
+export type Result<T extends object = Record<string, unknown>> =
   | ({ ok: true } & T)
   | { ok: false; error: string };
 
@@ -38,6 +38,35 @@ export type TaskSort =
   | "progress-desc"
   | "progress-asc"
   | "title";
+
+/** One answer to a rotating, non-repeating mood question. */
+export type MoodAnswer = {
+  id: string;
+  prompt: string;
+  value: number;
+};
+
+/** A private daily snapshot used only by the rule engine. */
+export type CheckIn = {
+  /** Local calendar day in YYYY-MM-DD form. */
+  day: string;
+  /** Direct 1–5 answer. */
+  energy: number;
+  /** Average of the mood answers, 1–5. */
+  mood: number;
+  /** Minutes the user says they have available. */
+  timeWindow: number;
+  answers: MoodAnswer[];
+  createdAt: number;
+};
+
+export type Insights = {
+  version: number;
+  checkIn: CheckIn | null;
+  /** Last day the daily prompt was shown or skipped. */
+  lastPromptDay: string | null;
+  updatedAt: number;
+};
 
 export type DeadlineInfo = {
   text: string;
@@ -127,6 +156,7 @@ export type SessionPayload = {
   teams: TeamView[];
   invites: TeamInviteView[];
   revision: number;
+  insights: Insights;
 };
 
 export type ApiAuthResult = Result<{

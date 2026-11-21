@@ -333,6 +333,19 @@ React-only enhancements:
 - **Stats summary** — pending, overdue, and completed totals
 - **Inline title editing** — click a task or history title to rename it in
   place; `Enter` or blur saves, `Esc` cancels
+- **Private daily check-in** — the first time **My tasks** opens each day, a
+  one-question-at-a-time wizard asks three rotating mood questions, then direct
+  energy and available-time questions. Answers are stored once per day and
+  never asked twice in the same check-in.
+- **Private recommendations** — today's check-in suggests tasks that fit your
+  mood, energy, and time, plus quick wins that may lift momentum. A reversible
+  **Best-fit order** control reorders private All/Pending tasks without
+  changing your saved sort; Overdue and Completed stay as they are.
+- **Seven-day personal baseline** — after seven active private days, Taskly
+  learns your daily completion streak. Adding tasks up to that streak triggers
+  a friendly nudge, never a block. Repeated tasks with recorded durations get
+  an advisory deadline suggestion. Every recommendation is per-user,
+  rule-based, and advisory only; the team workspace is unchanged.
 
 ## Storage format
 
@@ -341,7 +354,7 @@ server's JSON database (`data/db.json` by default):
 
 ```json
 {
-  "version": 5,
+  "version": 7,
   "revision": 12,
   "users": [
     {
@@ -392,6 +405,25 @@ server's JSON database (`data/db.json` by default):
           "completedAt": 0
         }
       ]
+    }
+  },
+  "insights": {
+    "user_...": {
+      "version": 1,
+      "checkIn": {
+        "day": "2026-11-21",
+        "energy": 4,
+        "mood": 3.7,
+        "timeWindow": 45,
+        "answers": [
+          { "id": "clarity", "prompt": "I feel clear-headed about my work.", "value": 4 },
+          { "id": "motivation", "prompt": "I feel motivated to start something new.", "value": 3 },
+          { "id": "patience", "prompt": "Small delays are easy for me to handle.", "value": 4 }
+        ],
+        "createdAt": 0
+      },
+      "lastPromptDay": "2026-11-21",
+      "updatedAt": 0
     }
   },
   "teams": [
@@ -503,12 +535,14 @@ src/
     AuthField.tsx         labelled auth input with inline warning
     AuthScreen.tsx        sign-up/sign-in plus forgot/reset password panels
     CountryPicker.tsx     searchable flag/dial-code combobox
+    DailyCheckIn.tsx      one-question daily private check-in wizard
     DeadlineBadge.tsx     due/overdue/on-time/late labels
     DeadlinePicker.tsx    popover, presets, preview, save/cancel/clear
     EditableTitle.tsx     inline rename with Enter/Escape handling
     EmptyState.tsx        shared empty-list message and recovery action
     HistoryItem.tsx       completed-task row and restore action
     Icons.tsx             inline SVG icons, including the profile glyph
+    InsightPanel.tsx      private suggestions, streak, and advisory notices
     ProgressControls.tsx  slider, note field, log button
     ProgressLog.tsx       expandable log with exact timestamps
     StatsBar.tsx          pending/overdue/completed summary
@@ -527,6 +561,8 @@ src/
     countryCodes.ts       country names, flags, dial codes, locale default
     date.ts               deadline labels, picker helpers, timestamps
     id.ts                 local task IDs
+    insights.ts           rotating questions, baseline, nudges, task scoring
+    insights.test.ts      rule-engine unit tests
     popoverPlacement.ts   keeps popovers inside the viewport
     progress.ts           clamping and note-aware progress entries
     snapshotHistory.ts    bounded history of locally saved snapshots
@@ -542,6 +578,8 @@ src/
 server/
   index.mjs             route table, SSE wiring, static dist/ serving
   authRoutes.mjs        register/login/forgot/reset/logout handlers
+  insightRoutes.mjs     private GET/PUT check-in handlers
+  insights.mjs          private check-in normalization
   teamRoutes.mjs        team, invite, and state-save handlers
   db.mjs                serialized atomic JSON persistence
   state.mjs             task/team state normalization
@@ -577,6 +615,8 @@ GET    /api/check-email?email=       duplicate-email check
 GET    /api/session                  current user, private state, teams, invites
 POST   /api/auth/logout              revoke this tab's session
 PUT    /api/private-state            save private tasks/history
+GET    /api/insights                 current user's private check-in
+PUT    /api/insights                 save current user's private check-in
 POST   /api/teams                    create a team
 PUT    /api/teams/:id/state          save shared tasks/history
 POST   /api/teams/:id/invites        invite by email
@@ -607,10 +647,12 @@ Unit tests run from both source trees:
 
 - `src/lib/auth.test.ts` — name, email, mobile, and password validation
 - `src/lib/tasks.test.ts` — filters, sorting, completion, and statistics
+- `src/lib/insights.test.ts` — question rotation, baseline, nudges, and scoring
 - `src/lib/date.test.ts` — deadline labels, picker helpers, and timestamps
 - `src/lib/api.test.ts` — typed API responses, including email availability
 - `src/lib/taskPermissions.test.ts` — assignee-only client-side task rules
 - `src/lib/snapshotHistory.test.ts` — bounded history of local save snapshots
+- `server/insights.test.mjs` — private check-in normalization bounds
 - `server/validationParity.test.mjs` — client/server validation constants and
   message parity
 - `server/permissions.test.mjs` — server-side task ownership checks
@@ -634,7 +676,10 @@ with task unassignment, team deletion, the full no-SMTP password reset flow,
 session invalidation after a reset, session persistence and logout, exact
 progress timestamps, the deadline picker, progress notes and persistence,
 completion/history/restore, sidebar filters/sort/stats, inline rename, the
-persisted light/dark toggle, and dark mode. The responsive checks assert real
+one-question daily check-in and its one-per-day storage, the seven-day streak
+nudge, advisory repeated-task deadlines with team isolation, reversible best-fit
+ordering, the persisted light/dark toggle, and dark mode. The responsive checks
+assert real
 element bounds and text wrapping at 320px, 360px, 390px, 640px (200% zoom),
 667×375 landscape, 768px, 1024px, 1440px, and 1920px, including long names,
 emails, task titles, overdue deadlines, and popover placement on short screens.

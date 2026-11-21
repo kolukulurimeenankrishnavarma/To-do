@@ -188,7 +188,9 @@ svg {
   .workspace-toggle__btn,
   .auth__mode,
   .country-picker__trigger,
-  .team-switcher__btn
+  .team-switcher__btn,
+  .checkin__choice,
+  .checkin__quick-btn
 ):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -1450,6 +1452,315 @@ svg {
 
 .stat--done .stat__value {
   color: var(--success);
+}
+
+/* ---------- Private insights ---------- */
+.checkin {
+  border-color: var(--accent);
+  background: linear-gradient(
+    180deg,
+    var(--accent-soft) 0,
+    var(--surface) 72px
+  );
+}
+
+.checkin__intro,
+.insight-panel__summary,
+.insight-panel__mood,
+.insight-panel__hint,
+.insight-panel__fineprint {
+  margin: 4px 0 12px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.checkin__progress {
+  display: flex;
+  gap: 6px;
+  margin: 14px 0 12px;
+}
+
+.checkin__dot {
+  flex: 1 1 0;
+  height: 4px;
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.checkin__dot--done {
+  background: var(--accent);
+}
+
+.checkin__step {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.checkin__prompt {
+  margin: 6px 0 16px;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.checkin__scale {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.checkin__choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 72px;
+  padding: 8px 4px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.checkin__choice:hover {
+  border-color: var(--accent);
+}
+
+.checkin__choice--active {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.checkin__choice-number {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.checkin__choice-label {
+  font-size: 10.5px;
+  line-height: 1.2;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.checkin__time {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.checkin__time-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.checkin__time-input {
+  width: 92px;
+  height: 42px;
+  padding: 0 10px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.checkin__quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.checkin__quick-btn {
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.checkin__quick-btn--active {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.checkin__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.insight-panel__streak {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--success);
+  background: var(--success-soft);
+  border-radius: 999px;
+}
+
+.insight-panel__bar {
+  height: 6px;
+  margin-bottom: 14px;
+  overflow: hidden;
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.insight-panel__bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width 0.25s ease;
+}
+
+.insight-panel__nudge,
+.insight-nudge,
+.insight-advice {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-radius: 12px;
+}
+
+.insight-advice {
+  margin: 12px 0 0;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
+.insight-panel__group {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.insight-panel__subtitle {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.insight-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.insight-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.insight-list__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.insight-list__title {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.insight-list__reason,
+.insight-list__badge {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.insight-list__badge {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.insight-list__show {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  font-size: 12px;
+}
+
+.insight-panel__bestfit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.insight-panel__bestfit .insight-panel__fineprint {
+  flex: 1 1 220px;
+  margin: 0;
+}
+
+.bestfit-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 8px 0;
+  padding: 10px 12px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+}
+
+.bestfit-strip__text {
+  flex: 1 1 240px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.bestfit-strip .btn {
+  flex: 0 0 auto;
 }
 
 /* ---------- Filters and sorting ---------- */
@@ -3026,6 +3337,34 @@ svg {
 
 .team-member__stat {
   white-space: normal;
+}
+
+@media (max-width: 560px) {
+  .checkin__scale {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .checkin__choice {
+    min-height: 62px;
+  }
+
+  .checkin__actions .btn {
+    flex: 1 1 auto;
+  }
+
+  .insight-list__item {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .insight-list__badge {
+    white-space: normal;
+  }
+
+  .bestfit-strip .btn,
+  .insight-panel__bestfit .btn {
+    width: 100%;
+  }
 }
 
 @media (pointer: coarse) {

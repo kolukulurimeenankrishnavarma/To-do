@@ -7,6 +7,7 @@ import {
   presetDeadline,
   timeInputValue,
 } from "../lib/date";
+import { recommendedDeadlineAdvice, type RepeatedTaskPattern } from "../lib/insights";
 import { useTransientFlag } from "../lib/useTransientFlag";
 import type { PublicUser, Workspace } from "../types";
 import { DeadlinePicker } from "./DeadlinePicker";
@@ -16,6 +17,8 @@ type TaskFormProps = {
   workspace: Workspace;
   members: PublicUser[];
   currentUserId: string;
+  nudge?: string | null;
+  deadlinePatterns?: RepeatedTaskPattern[];
   onAdd: (
     title: string,
     deadline: number | null,
@@ -28,6 +31,8 @@ export function TaskForm({
   workspace,
   members,
   currentUserId,
+  nudge = null,
+  deadlinePatterns = [],
   onAdd,
 }: TaskFormProps) {
   const [title, setTitle] = useState("");
@@ -42,6 +47,10 @@ export function TaskForm({
   const [shake, triggerShake] = useTransientFlag(340);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const deadlineAdvice =
+    workspace === "private"
+      ? recommendedDeadlineAdvice(title.trim(), deadlinePatterns)
+      : null;
 
   function showError(message: string) {
     setError(message);
@@ -179,6 +188,18 @@ export function TaskForm({
       {error ? (
         <p className="form-error" id="form-error" role="alert">
           {error}
+        </p>
+      ) : null}
+
+      {nudge ? (
+        <p className="insight-nudge" id="task-add-nudge" role="status">
+          {nudge}
+        </p>
+      ) : null}
+
+      {deadlineAdvice ? (
+        <p className="insight-advice" id="deadline-advice" role="status">
+          {deadlineAdvice} Your deadline stays your choice.
         </p>
       ) : null}
     </section>

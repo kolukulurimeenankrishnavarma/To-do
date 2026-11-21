@@ -1,6 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { savePrivateState, saveTeamState } from "./api";
+import {
+  errorMessage,
+  saveInsights,
+  savePrivateState,
+  saveTeamState,
+} from "./api";
 import { taskId } from "./id";
+import {
+  addLimitNudge,
+  currentCheckIn,
+  localDayKey,
+  personalBaseline,
+  repeatedTaskPatterns,
+  sortBestFit,
+  taskSuggestions,
+  INSIGHTS_VERSION,
+} from "./insights";
 import { appendProgressEntry, clampProgress } from "./progress";
 import { canManage } from "./taskPermissions";
 import { emptyState } from "./storage";
@@ -18,7 +33,10 @@ import {
 } from "./tasks";
 import type {
   AppState,
+  CheckIn,
+  Insights,
   PublicUser,
+  Result,
   Task,
   TaskFilter,
   TaskSort,
@@ -32,6 +50,7 @@ import type {
 export type TaskBoardOptions = {
   user: PublicUser;
   initialState: AppState;
+  initialInsights: Insights;
   teams: TeamView[];
   invites: TeamInviteView[];
   focusInviteId?: string | null;
@@ -56,6 +75,7 @@ export type TaskBoardOptions = {
 export function useTaskBoard({
   user,
   initialState,
+  initialInsights,
   teams,
   invites,
   focusInviteId = null,
@@ -94,11 +114,19 @@ function initialTeamId(teams: TeamView[]): string | null {
   const [enteringTaskId, setEnteringTaskId] = useState<string | null>(null);
   const [enteringHistoryId, setEnteringHistoryId] = useState<string | null>(null);
   const [historyFlash, triggerHistoryFlash] = useTransientFlag(750);
+  const [insights, setInsights] = useState<Insights>(initialInsights);
+  const [checkInOpen, setCheckInOpen] = useState(false);
+  const [bestFit, setBestFit] = useState(false);
+  const [insightError, setInsightError] = useState("");
 
   const pendingCompletions = useRef(new Set<string>());
   const privateLocalSnapshot = useRef(JSON.stringify(initialState));
   const privatePropsSnapshot = useRef(JSON.stringify(initialState));
   const privateSavedSnapshots = useRef<string[]>([]);
+  const insightsPropsSnapshot = useRef(JSON.stringify(initialInsights));
+  const insightsLocalSnapshot = useRef(JSON.stringify(initialInsights));
+  const insightsSavedSnapshots = useRef<string[]>([]);
+  const promptedDayRef = useRef<string | null>(null);
   const teamSnapshots = useRef<Record<string, string>>(
     Object.fromEntries(
       teams.map((view) => [
@@ -139,6 +167,70 @@ function initialTeamId(teams: TeamView[]): string | null {
         : emptyState();
   const members = activeTeamView?.members ?? [];
   const hostId = activeTeamView?.team.hostId ?? null;
+
+  const today = localDayKey(now);
+  const activeCheckIn = currentCheckIn(insights, today);
+  const baseline = useMemo(() => personalBaseline(privateState), [privateState]);
+  const deadlinePatterns = useMemo(
+    () => (baseline.ready ? repeatedTaskPatterns(privateState) : []),
+    [privateState, baseline.ready],
+  );
+  const suggestions = useMemo(
+    () =>
+      taskSuggestions(
+        state.tasks,
+        workspace === "private" ? activeCheckIn : null,
+        now,
+      ),
+    [state.tasks, activeCheckIn, now, workspace],
+  );
+  const addNudge =
+    workspace === "private" ? addLimitNudge(privateState, baseline, now) : null;
+  const bestFitAvailable =
+    workspace === "private" &&
+    activeCheckIn !== null &&
+    (filter === "all" || filter === "pending") &&
+    state.tasks.length > 0;
+
+  // A check-in saved in another tab arrives through the session payload.
+  useEffect(() => {
+    const serialized = JSON.stringify(initialInsights);
+    if (serialized === insightsPropsSnapshot.current) return;
+    insightsPropsSnapshot.current = serialized;
+    if (serialized === insightsLocalSnapshot.current) return;
+    if (insightsSavedSnapshots.current.includes(serialized)) return;
+
+    insightsLocalSnapshot.current = serialized;
+    setInsights(initialInsights);
+  }, [initialInsights]);
+
+  async function persistInsights(next: Insights): Promise<Result> {
+    try {
+      const saved = await saveInsights(next);
+      const serialized = JSON.stringify(saved);
+      rememberSnapshot(insightsSavedSnapshots.current, serialized);
+      insightsLocalSnapshot.current = serialized;
+      setInsights(saved);
+      setInsightError("");
+      return { ok: true };
+    } catch (error) {
+      const message = errorMessage(error);
+      setInsightError(message);
+      return { ok: false, error: message };
+    }
+  }
+
+  // Show the prompt the first time My tasks is opened on a new day. Answering
+  // or skipping records the day, so switching workspaces cannot re-ask it.
+  useEffect(() => {
+    if (workspace !== "private") return;
+    if (insights.lastPromptDay === today) return;
+    if (insights.checkIn?.day === today) return;
+    if (promptedDayRef.current === today) return;
+
+    promptedDayRef.current = today;
+    setCheckInOpen(true);
+  }, [workspace, today, insights.lastPromptDay, insights.checkIn?.day]);
 
   // Keep local team data in sync when membership changes, a new team is added,
   // or another tab updates shared work.
@@ -299,6 +391,43 @@ function initialTeamId(teams: TeamView[]): string | null {
 
   function changeFilter(next: TaskFilter) {
     setFilter(next);
+    if (next === "overdue" || next === "completed") setBestFit(false);
+  }
+
+  async function handleSaveCheckIn(checkIn: CheckIn): Promise<Result> {
+    const result = await persistInsights({
+      version: INSIGHTS_VERSION,
+      checkIn,
+      lastPromptDay: checkIn.day,
+      updatedAt: Date.now(),
+    });
+    if (result.ok) setCheckInOpen(false);
+    return result;
+  }
+
+  async function handleSkipCheckIn(): Promise<Result> {
+    const result = await persistInsights({
+      ...insights,
+      version: INSIGHTS_VERSION,
+      lastPromptDay: today,
+      updatedAt: Date.now(),
+    });
+    if (result.ok) setCheckInOpen(false);
+    return result;
+  }
+
+  function toggleBestFit() {
+    setBestFit((current) => !current);
+  }
+
+  function revealTask(taskId: string) {
+    changeFilter("all");
+    window.setTimeout(() => {
+      document.getElementById(`task-${taskId}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 60);
   }
 
   function switchWorkspace(next: Workspace) {
@@ -308,6 +437,7 @@ function initialTeamId(teams: TeamView[]): string | null {
     setLeavingIds([]);
     setEnteringTaskId(null);
     setEnteringHistoryId(null);
+    setBestFit(false);
   }
 
   function selectTeam(teamId: string) {
@@ -318,6 +448,7 @@ function initialTeamId(teams: TeamView[]): string | null {
     setLeavingIds([]);
     setEnteringTaskId(null);
     setEnteringHistoryId(null);
+    setBestFit(false);
   }
 
   async function handleCreateTeam(): Promise<TeamActionResult> {
@@ -626,13 +757,27 @@ function initialTeamId(teams: TeamView[]): string | null {
     [state.tasks, state.history, now],
   );
 
-  const visibleTasks = useMemo(
-    () =>
-      filter === "completed"
-        ? []
-        : sortTasks(filterTasks(state.tasks, filter, now), sort),
-    [state.tasks, filter, sort, now],
-  );
+  const visibleTasks = useMemo(() => {
+    const filtered = filter === "completed" ? [] : filterTasks(state.tasks, filter, now);
+    if (
+      bestFit &&
+      bestFitAvailable &&
+      workspace === "private" &&
+      activeCheckIn
+    ) {
+      return sortBestFit(filtered, activeCheckIn, now);
+    }
+    return sortTasks(filtered, sort);
+  }, [
+    state.tasks,
+    filter,
+    sort,
+    now,
+    bestFit,
+    bestFitAvailable,
+    workspace,
+    activeCheckIn,
+  ]);
 
   const stats = useMemo(
     () => taskStats(state.tasks, state.history, now),
@@ -680,5 +825,19 @@ function initialTeamId(teams: TeamView[]): string | null {
     counts,
     visibleTasks,
     stats,
+    today,
+    checkInOpen,
+    checkIn: activeCheckIn,
+    baseline,
+    deadlinePatterns,
+    suggestions,
+    addNudge,
+    bestFit,
+    bestFitAvailable,
+    insightError,
+    handleSaveCheckIn,
+    handleSkipCheckIn,
+    toggleBestFit,
+    revealTask,
   };
 }
