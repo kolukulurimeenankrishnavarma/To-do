@@ -3,6 +3,7 @@ import type {
   AppState,
   AuthInput,
   EmailCheckResponse,
+  Insights,
   PasswordResetRequestResult,
   ServerMeta,
   SessionPayload,
@@ -242,6 +243,33 @@ export async function saveTeamState(
   await request<{ ok: true }>(`/api/teams/${encodeURIComponent(teamId)}/state`, {
     method: "PUT",
     body: JSON.stringify({ state }),
+  });
+}
+
+export async function getInsights(): Promise<Insights> {
+  return request<Insights>("/api/insights");
+}
+
+export async function saveInsights(insights: Insights): Promise<void> {
+  await request<{ ok: true }>("/api/insights", {
+    method: "PUT",
+    body: JSON.stringify({ insights }),
+  });
+}
+
+export type RecurringRunResult = {
+  ok: true;
+  count: number;
+  created: {
+    taskId: string;
+    title: string;
+    teamId: string | null;
+  }[];
+};
+
+export async function runRecurring(): Promise<RecurringRunResult> {
+  return request<RecurringRunResult>("/api/insights/recurring/run", {
+    method: "POST",
   });
 }
 

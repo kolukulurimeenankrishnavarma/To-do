@@ -1,4 +1,5 @@
 import { fail } from "./http.mjs";
+import { emptyInsights, normalizeInsights } from "./insights.mjs";
 import { emptyState, normalizeState } from "./state.mjs";
 
 export function publicUser(user) {
@@ -98,5 +99,6 @@ export function sessionPayload(db, user) {
     teams,
     invites,
     revision: db.revision,
+    insights: normalizeInsights(db.insights?.[user.id] ?? emptyInsights()),
   };
 }

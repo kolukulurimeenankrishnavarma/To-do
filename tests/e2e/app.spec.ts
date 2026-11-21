@@ -67,11 +67,17 @@ type DbTeam = {
   };
 };
 
+type DbInsights = {
+  checkIn?: { energy: number } | null;
+  recurringRules?: { id: string; title: string }[];
+};
+
 type Db = {
   revision: number;
   users: DbUser[];
   data: Record<string, unknown>;
   teams: DbTeam[];
+  insights?: Record<string, DbInsights>;
 };
 
 async function readDb(): Promise<Db> {
@@ -2094,4 +2100,88 @@ test("long names, emails, and deadline badges wrap on a 320px phone", async ({
   const longEmail = `${"x".repeat(200)}@example.com`;
   await inviteByEmail(page, longEmail);
   await assertFitsViewport(page, "320 long team name and invite email");
+});
+
+test("check-in applies reversible best-fit ordering without changing saved sort", async ({
+  page,
+}) => {
+  await signUp(page);
+  await addTask(page, "Alpha Review Dashboard UI #1");
+  await setProgress(page.locator("#task-list .item").first(), 75);
+  await addTask(page, "Zulu Refactor API Gateway #2");
+
+  await expect(page.locator("#task-list .item").first()).toContainText(
+    "Zulu Refactor API Gateway",
+  );
+
+  await page.locator("#checkin-energy-1 + span").click();
+  await page.locator("#checkin-focus-2 + span").click();
+  await page.locator("#checkin-time").selectOption("15");
+  await page.locator("#checkin-save").click();
+
+  await expect(page.locator("#best-fit-strip")).toBeVisible();
+  await expect(page.locator("#task-list .item").first()).toContainText(
+    "Alpha Review Dashboard UI",
+  );
+  await expect(page.locator(".sort__select")).toHaveValue("newest");
+
+  await page.locator("#best-fit-strip button").click();
+  await expect(page.locator("#best-fit-strip")).toBeHidden();
+  await expect(page.locator("#task-list .item").first()).toContainText(
+    "Zulu Refactor API Gateway",
+  );
+
+  const user = await storedUser(page);
+  await waitForDb((db) =>
+    Boolean(user && db.insights?.[user.id]?.checkIn?.energy === 1),
+  );
+});
+
+test("draft advice appears and due recurring rules create tasks", async ({
+  page,
+}) => {
+  await signUp(page);
+
+  await page.fill("#task-input", "Review API Gateway #3");
+  await expect(page.locator("#draft-advice")).toContainText("about 9 days");
+  await page.fill("#task-input", "");
+  await expect(page.locator("#draft-advice")).toHaveCount(0);
+
+  const token = await sessionToken(page);
+  const lastCreatedAt = Date.now() - 40 * 86_400_000;
+  const saved = await page.request.put("/api/insights", {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      insights: {
+        recurringRules: [
+          {
+            id: "e2e-rule",
+            title: "Review API Gateway",
+            titleKey: "review api gateway",
+            cadence: "weekly",
+            intervalMs: 7 * 86_400_000,
+            lastCreatedAt,
+            createdAt: lastCreatedAt,
+            sourceTaskIds: [],
+            targetTeamId: null,
+            enabled: true,
+          },
+        ],
+      },
+    },
+  });
+  expect(saved.ok()).toBe(true);
+
+  await page.reload();
+  await expect(page.locator("#recurring-run")).toBeEnabled();
+  await page.locator("#recurring-run").click();
+
+  await expect(page.locator("#task-list .item", { hasText: "Review API Gateway" })).toHaveCount(1);
+  await waitForDb((db) =>
+    [...Object.values(db.data)].some((state) =>
+      ((state as { tasks?: { title: string }[] }).tasks ?? []).some(
+        (task) => task.title === "Review API Gateway",
+      ),
+    ),
+  );
 });

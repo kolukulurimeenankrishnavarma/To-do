@@ -1,11 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { savePrivateState, saveTeamState } from "./api";
+import {
+  saveInsights,
+  savePrivateState,
+  saveTeamState,
+  type RecurringRunResult,
+} from "./api";
 import { taskId } from "./id";
 import { appendProgressEntry, clampProgress } from "./progress";
 import { canManage } from "./taskPermissions";
 import { emptyState } from "./storage";
 import { readStoredSort, rememberSort } from "./sortPreference";
 import { readTabTeamId, rememberTeamId } from "./tabState";
+import {
+  detectRecurringRules,
+  insightNudges,
+  normalizeInsights,
+  sortBestFit,
+} from "./insights";
 import { rememberSnapshot } from "./snapshotHistory";
 import { useTransientFlag } from "./useTransientFlag";
 import {
@@ -18,7 +29,10 @@ import {
 } from "./tasks";
 import type {
   AppState,
+  CheckIn,
+  Insights,
   PublicUser,
+  RecurrenceRule,
   Task,
   TaskFilter,
   TaskSort,
@@ -32,6 +46,7 @@ import type {
 export type TaskBoardOptions = {
   user: PublicUser;
   initialState: AppState;
+  initialInsights: Insights;
   teams: TeamView[];
   invites: TeamInviteView[];
   focusInviteId?: string | null;
@@ -50,12 +65,14 @@ export type TaskBoardOptions = {
     memberId: string,
   ) => Promise<TeamActionResult>;
   onDeleteTeam: (teamId: string) => Promise<TeamActionResult>;
+  onRunRecurring: () => Promise<RecurringRunResult>;
   onLogout: () => void | Promise<void>;
 };
 
 export function useTaskBoard({
   user,
   initialState,
+  initialInsights,
   teams,
   invites,
   focusInviteId = null,
@@ -65,6 +82,7 @@ export function useTaskBoard({
   onCancelInvite,
   onRemoveTeamMember,
   onDeleteTeam,
+  onRunRecurring,
   onLogout,
 }: TaskBoardOptions) {
 function initialTeamId(teams: TeamView[]): string | null {
@@ -89,6 +107,11 @@ function initialTeamId(teams: TeamView[]): string | null {
   );
   const [filter, setFilter] = useState<TaskFilter>("all");
   const [sort, setSort] = useState<TaskSort>(() => readStoredSort() ?? "newest");
+  const [bestFitActive, setBestFitActive] = useState(false);
+  const [insights, setInsights] = useState<Insights>(() =>
+    normalizeInsights(initialInsights),
+  );
+  const [recurringBusy, setRecurringBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [leavingIds, setLeavingIds] = useState<string[]>([]);
   const [enteringTaskId, setEnteringTaskId] = useState<string | null>(null);
@@ -121,6 +144,11 @@ function initialTeamId(teams: TeamView[]): string | null {
   const pendingTeamId = useRef<string | null>(null);
   const saveChains = useRef<Record<string, Promise<void>>>({});
 
+  const insightsLocalSnapshot = useRef(JSON.stringify(insights));
+  const insightsPropsSnapshot = useRef(JSON.stringify(initialInsights));
+  const insightsSavedSnapshots = useRef<string[]>([]);
+  const insightsSaveChain = useRef(Promise.resolve());
+
   function queueSave(key: string, task: () => Promise<void>) {
     const previous = saveChains.current[key] ?? Promise.resolve();
     saveChains.current[key] = previous.then(task).catch(() => {
@@ -139,6 +167,24 @@ function initialTeamId(teams: TeamView[]): string | null {
         : emptyState();
   const members = activeTeamView?.members ?? [];
   const hostId = activeTeamView?.team.hostId ?? null;
+  const bestFitContext = useMemo(
+    () => ({ checkIn: insights.checkIn, history: state.history, now }),
+    [insights.checkIn, state.history, now],
+  );
+  const nudges = useMemo(
+    () => insightNudges(state, insights, now),
+    [state, insights, now],
+  );
+  const recurrenceCandidates = useMemo(
+    () =>
+      detectRecurringRules(
+        state,
+        insights.recurringRules,
+        workspace === "team" ? activeTeamId : null,
+        now,
+      ),
+    [state, insights.recurringRules, workspace, activeTeamId, now],
+  );
 
   // Keep local team data in sync when membership changes, a new team is added,
   // or another tab updates shared work.
@@ -234,6 +280,31 @@ function initialTeamId(teams: TeamView[]): string | null {
     queueSave(`private:${user.id}`, () => savePrivateState(privateState));
   }, [privateState, user.id]);
 
+  // Insights are private to this account. Adopt server refreshes unless they
+  // echo a snapshot this tab already has or has just written.
+  useEffect(() => {
+    const serialized = JSON.stringify(initialInsights);
+    if (serialized === insightsPropsSnapshot.current) return;
+    insightsPropsSnapshot.current = serialized;
+    if (serialized === insightsLocalSnapshot.current) return;
+    if (insightsSavedSnapshots.current.includes(serialized)) return;
+
+    insightsLocalSnapshot.current = serialized;
+    setInsights(normalizeInsights(initialInsights));
+  }, [initialInsights]);
+
+  useEffect(() => {
+    const serialized = JSON.stringify(insights);
+    if (serialized === insightsLocalSnapshot.current) return;
+    insightsLocalSnapshot.current = serialized;
+    rememberSnapshot(insightsSavedSnapshots.current, serialized);
+    insightsSaveChain.current = insightsSaveChain.current
+      .then(() => saveInsights(insights))
+      .catch(() => {
+        // A later change retries the newest snapshot.
+      });
+  }, [insights]);
+
   useEffect(() => {
     for (const view of teams) {
       const current = teamStates[view.team.id];
@@ -295,6 +366,57 @@ function initialTeamId(teams: TeamView[]): string | null {
   function handleSortChange(next: TaskSort) {
     setSort(next);
     rememberSort(next);
+  }
+
+  function handleSaveCheckIn(checkIn: CheckIn) {
+    setInsights((prev) => ({
+      ...prev,
+      checkIn,
+      updatedAt: Date.now(),
+    }));
+    setBestFitActive(true);
+  }
+
+  function handleClearBestFit() {
+    setBestFitActive(false);
+  }
+
+  function handleDismissNudge(id: string) {
+    setInsights((prev) =>
+      prev.dismissedNudges.includes(id)
+        ? prev
+        : {
+            ...prev,
+            dismissedNudges: [...prev.dismissedNudges, id],
+            updatedAt: Date.now(),
+          },
+    );
+  }
+
+  function handleEnableRecurring(rule: RecurrenceRule) {
+    setInsights((prev) =>
+      prev.recurringRules.some(
+        (entry) =>
+          entry.titleKey === rule.titleKey &&
+          entry.targetTeamId === rule.targetTeamId,
+      )
+        ? prev
+        : {
+            ...prev,
+            recurringRules: [...prev.recurringRules, rule],
+            updatedAt: Date.now(),
+          },
+    );
+  }
+
+  async function handleRunRecurring() {
+    if (recurringBusy) return;
+    setRecurringBusy(true);
+    try {
+      await onRunRecurring();
+    } finally {
+      setRecurringBusy(false);
+    }
   }
 
   function changeFilter(next: TaskFilter) {
@@ -626,13 +748,14 @@ function initialTeamId(teams: TeamView[]): string | null {
     [state.tasks, state.history, now],
   );
 
-  const visibleTasks = useMemo(
-    () =>
-      filter === "completed"
-        ? []
-        : sortTasks(filterTasks(state.tasks, filter, now), sort),
-    [state.tasks, filter, sort, now],
-  );
+  const visibleTasks = useMemo(() => {
+    if (filter === "completed") return [];
+    const tasks = filterTasks(state.tasks, filter, now);
+    if (bestFitActive && (filter === "all" || filter === "pending")) {
+      return sortBestFit(tasks, bestFitContext);
+    }
+    return sortTasks(tasks, sort);
+  }, [state.tasks, filter, sort, now, bestFitActive, bestFitContext]);
 
   const stats = useMemo(
     () => taskStats(state.tasks, state.history, now),
@@ -644,6 +767,11 @@ function initialTeamId(teams: TeamView[]): string | null {
     workspace,
     filter,
     sort,
+    bestFitActive,
+    insights,
+    nudges,
+    recurrenceCandidates,
+    recurringBusy,
     now,
     leavingIds,
     enteringTaskId,
@@ -676,6 +804,11 @@ function initialTeamId(teams: TeamView[]): string | null {
     deleteHistoryItem,
     clearTasks,
     clearHistory,
+    handleSaveCheckIn,
+    handleClearBestFit,
+    handleDismissNudge,
+    handleEnableRecurring,
+    handleRunRecurring,
     handleLogout,
     counts,
     visibleTasks,

@@ -13,6 +13,7 @@ import { parseEmail } from "./validation.mjs";
 import { getUserByEmail, sessionPayload } from "./views.mjs";
 import { clientIdFrom, requireAuth } from "./sessions.mjs";
 import { createAuthRoutes } from "./authRoutes.mjs";
+import { createInsightRoutes } from "./insightRoutes.mjs";
 import { createTeamRoutes } from "./teamRoutes.mjs";
 
 // Must run before any TASKLY_* constant below is read.
@@ -118,6 +119,24 @@ async function handleApi(req, res, url) {
   if (method === "PUT" && route === "/api/private-state") {
     const auth = requireAuth(db, req);
     await teamRoutes.updatePrivateState(req, res, auth, clientId);
+    return;
+  }
+
+  if (method === "GET" && route === "/api/insights") {
+    const auth = requireAuth(db, req);
+    insightRoutes.getInsights(req, res, auth);
+    return;
+  }
+
+  if (method === "PUT" && route === "/api/insights") {
+    const auth = requireAuth(db, req);
+    await insightRoutes.saveInsights(req, res, auth, clientId);
+    return;
+  }
+
+  if (method === "POST" && route === "/api/insights/recurring/run") {
+    const auth = requireAuth(db, req);
+    await insightRoutes.runRecurring(req, res, auth, clientId);
     return;
   }
 
@@ -227,6 +246,7 @@ const events = createEvents({ store });
 const responses = createResponses({ store, broadcast: events.broadcast });
 const staticFiles = createStaticFiles({ dist: DIST });
 const authRoutes = createAuthRoutes({ store, responses, events, publicBase });
+const insightRoutes = createInsightRoutes({ store, responses });
 const teamRoutes = createTeamRoutes({ store, responses, publicBase });
 
 const server = http.createServer(async (req, res) => {

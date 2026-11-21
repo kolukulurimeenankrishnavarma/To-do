@@ -1,5 +1,7 @@
+import { CheckInCard } from "./CheckInCard";
 import { EmptyState } from "./EmptyState";
 import { HistoryItem } from "./HistoryItem";
+import { InsightNudges } from "./InsightNudges";
 import { StatsBar } from "./StatsBar";
 import { TaskForm } from "./TaskForm";
 import { TaskItem } from "./TaskItem";
@@ -29,9 +31,18 @@ const VIEWS: { id: TaskFilter; label: string }[] = [
   { id: "completed", label: "Completed" },
 ];
 
+const SORT_LABELS = {
+  newest: "Newest first",
+  deadline: "Deadline soonest",
+  "progress-desc": "Progress high to low",
+  "progress-asc": "Progress low to high",
+  title: "Title A–Z",
+} as const;
+
 export function TasklyBoard({
   user,
   initialState,
+  initialInsights,
   teams,
   invites,
   focusInviteId = null,
@@ -42,6 +53,7 @@ export function TasklyBoard({
   onCancelInvite,
   onRemoveTeamMember,
   onDeleteTeam,
+  onRunRecurring,
   onLogout,
   theme,
   onToggleTheme,
@@ -49,6 +61,7 @@ export function TasklyBoard({
   const board = useTaskBoard({
     user,
     initialState,
+    initialInsights,
     teams,
     invites,
     focusInviteId,
@@ -58,6 +71,7 @@ export function TasklyBoard({
     onCancelInvite,
     onRemoveTeamMember,
     onDeleteTeam,
+    onRunRecurring,
     onLogout,
   });
   const {
@@ -65,6 +79,11 @@ export function TasklyBoard({
     workspace,
     filter,
     sort,
+    bestFitActive,
+    insights,
+    nudges,
+    recurrenceCandidates,
+    recurringBusy,
     now,
     leavingIds,
     enteringTaskId,
@@ -97,6 +116,11 @@ export function TasklyBoard({
     deleteHistoryItem,
     clearTasks,
     clearHistory,
+    handleSaveCheckIn,
+    handleClearBestFit,
+    handleDismissNudge,
+    handleEnableRecurring,
+    handleRunRecurring,
     handleLogout,
     counts,
     visibleTasks,
@@ -245,6 +269,18 @@ export function TasklyBoard({
             </section>
           ) : null}
 
+          <CheckInCard checkIn={insights.checkIn} onSave={handleSaveCheckIn} />
+
+          <InsightNudges
+            nudges={nudges}
+            candidates={recurrenceCandidates}
+            enabledCount={insights.recurringRules.filter((rule) => rule.enabled).length}
+            busy={recurringBusy}
+            onDismiss={handleDismissNudge}
+            onEnable={handleEnableRecurring}
+            onRun={() => void handleRunRecurring()}
+          />
+
           {workspace === "team" && !activeTeamView ? (
             <TeamGate
               user={user}
@@ -328,6 +364,7 @@ export function TasklyBoard({
                   }
                   now={now}
                   workspace={workspace}
+                  history={state.history}
                   members={members}
                   currentUserId={user.id}
                   onAdd={addTask}
@@ -355,7 +392,13 @@ export function TasklyBoard({
                   </div>
 
                   {state.tasks.length > 0 ? (
-                    <TaskToolbar sort={sort} onSortChange={handleSortChange} />
+                    <TaskToolbar
+                      sort={sort}
+                      onSortChange={handleSortChange}
+                      bestFitActive={bestFitActive}
+                      onClearBestFit={handleClearBestFit}
+                      savedSortLabel={SORT_LABELS[sort]}
+                    />
                   ) : null}
 
                   {state.tasks.length === 0 ? (
